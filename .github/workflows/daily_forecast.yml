@@ -1,0 +1,55 @@
+# 每日 16:20（台北）日落判定推播 + 預測日誌 commit。
+# 16:20 Asia/Taipei = 08:20 UTC。GitHub Actions cron 有 ±數分鐘飄移，可接受。
+name: daily-forecast
+
+on:
+  schedule:
+    - cron: "20 8 * * *"
+  workflow_dispatch:
+    inputs:
+      front_flag:
+        description: "鋒面/颱風外圍 48h 內（人工 flag）"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sunset-logs
+  cancel-in-progress: false
+
+jobs:
+  forecast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: pip install .
+
+      - name: Run daily forecast (analyze -> push -> log)
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          FRONT=""
+          if [ "${{ inputs.front_flag }}" = "true" ]; then FRONT="--front"; fi
+          python -m sunset push-daily $FRONT
+
+      - name: Commit prediction log (append-only)
+        run: |
+          git config user.name "sunset-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/logs/predictions.csv
+          if git diff --cached --quiet; then
+            echo "no prediction log changes"
+          else
+            git commit -m "log: daily prediction $(date -u +%Y-%m-%dT%H:%MZ)"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
