@@ -1,0 +1,28 @@
+[
+  {
+    "id": "jiantan_laodifang",
+    "name": "劍潭山老地方觀機平台",
+    "lat": 25.0904311, "lon": 121.5367826, "elevation_m": 150,
+    "open_azimuth_range": [250, 320],
+    "horizon_obstruction": [
+      {"azimuth_range": [285, 305], "angle_deg": 0.4, "note": "淡水河出海口缺口，遠方林口台地"}
+    ],
+    "type": "mountain",
+    "access": "劍潭捷運站步行上坡 20-25 分鐘",
+    "weather_exclusion": "對流活躍日避開（雷擊、低雲罩頂）",
+    "notes": "日落方位 296° 正對觀音山—大屯山間出海口缺口；觀音山主峰在方位 255°/11.1km，不擋日落"
+  },
+  {
+    "id": "dadaocheng_wharf",
+    "name": "大稻埕碼頭",
+    "lat": 25.0565135, "lon": 121.5075150, "elevation_m": 5,
+    "open_azimuth_range": [265, 305],
+    "horizon_obstruction": [
+      {"azimuth_range": [290, 305], "angle_deg": 2.0, "note": "觀音山北側稜線，太陽提前約 7-12 分鐘沒入"}
+    ],
+    "type": "riverside",
+    "access": "捷運北門站步行約 10 分鐘，平地易退場",
+    "weather_exclusion": null,
+    "notes": "對流風險日首選；主峰方位 276.5°/7.8km 仰角 4.5°，但日落點偏北處稜線較低"
+  }
+]

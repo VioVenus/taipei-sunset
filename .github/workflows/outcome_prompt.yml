@@ -1,0 +1,30 @@
+# 每日 19:15（台北）推播詢問今晚實際結果 A/B/C/D。
+# 19:15 Asia/Taipei = 11:15 UTC。GitHub Actions cron 有 ±數分鐘飄移，可接受。
+name: outcome-prompt
+
+on:
+  schedule:
+    - cron: "15 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prompt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: pip install .
+
+      - name: Send outcome prompt
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -m sunset prompt-outcome
