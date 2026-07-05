@@ -1,17 +1,17 @@
-# 每日 19:15（台北）推播詢問今晚實際結果 A/B/C/D。
-# 19:15 Asia/Taipei = 11:15 UTC。GitHub Actions cron 有 ±數分鐘飄移，可接受。
-name: outcome-prompt
+# 每週日 20:00（台北）＝ 12:00 UTC：週報（過去 7 天預測 vs 回報 + 未來展望）。
+# GitHub Actions cron 有 ±數分鐘飄移，可接受。
+name: weekly-review
 
 on:
   schedule:
-    - cron: "15 11 * * *"
+    - cron: "0 12 * * 0"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  prompt:
+  review:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,9 +23,9 @@ jobs:
       - name: Install package
         run: pip install .
 
-      - name: Send outcome prompt
+      - name: Send weekly review
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-        run: python -m sunset prompt-outcome
+        run: python -m sunset weekly-review
