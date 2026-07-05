@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>台北日落 — 火燒雲預測</title>
+  <meta name="description" content="台北日落／火燒雲預測：四情境機率區間、點位推薦、太陽時間軸" />
+  <meta name="theme-color" content="#14161d" media="(prefers-color-scheme: dark)" />
+  <meta name="theme-color" content="#faf7f2" media="(prefers-color-scheme: light)" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1 id="topbar-date">— 台北日落</h1>
+    <div class="chips" id="date-chips" role="tablist" aria-label="日期選擇">
+      <button class="chip active" data-offset="0">今天</button>
+      <button class="chip" data-offset="1">明天</button>
+      <button class="chip" data-offset="2">後天</button>
+      <button class="chip" data-offset="3">+3天</button>
+    </div>
+    <button class="refresh" id="refresh-btn" aria-label="重新整理">↻</button>
+  </header>
+
+  <main id="main">
+    <!-- 預報分頁 -->
+    <section id="tab-forecast" class="tab active" aria-label="預報">
+      <div id="stale-banner" class="banner warn hidden"></div>
+      <div id="preliminary-banner" class="banner warn hidden">
+        📌 初步展望・信心低，以當日 16:20 推播為準（早上的預報對午後對流幾乎無鑑別力）
+      </div>
+      <div id="verdict-card" class="card verdict-card skeleton" aria-live="polite"></div>
+      <div class="card" id="timeline-card"></div>
+      <div class="card" id="scenario-card"></div>
+      <div class="card" id="reasons-card"></div>
+      <div class="card" id="others-card"></div>
+      <p class="footnote" id="data-footnote"></p>
+    </section>
+
+    <!-- 紀錄分頁 -->
+    <section id="tab-log" class="tab" aria-label="紀錄">
+      <div class="card">
+        <h2 id="report-title">今晚實際結果？</h2>
+        <p class="muted small">回報寫入 outcomes.csv（append-only），是明日持續性加成與校準的資料來源。</p>
+        <div class="report-grid">
+          <button class="report-btn oa" data-outcome="A">A<span>全擋沒看到</span></button>
+          <button class="report-btn ob" data-outcome="B">B<span>普通橘色</span></button>
+          <button class="report-btn oc" data-outcome="C">C<span>局部火燒雲</span></button>
+          <button class="report-btn od" data-outcome="D">D<span>全面火燒雲</span></button>
+        </div>
+        <input type="text" id="report-note" placeholder="備註（選填）" maxlength="80" />
+        <p class="footnote" id="report-status"></p>
+      </div>
+      <div class="card" id="weekly-card"><h2>本週統計</h2><p class="muted">載入中…</p></div>
+      <div class="card" id="history-card"><h2>歷史紀錄</h2><p class="muted">載入中…</p></div>
+    </section>
+
+    <!-- 設定分頁 -->
+    <section id="tab-settings" class="tab" aria-label="設定">
+      <div class="card">
+        <h2>GitHub 一鍵回報</h2>
+        <p class="muted small">
+          選填。建立 fine-grained token（只勾本 repo 的 Actions: Read and write），
+          存在本機 localStorage，不會離開此裝置。未設定時回報按鈕會改開 GitHub 頁面。
+        </p>
+        <input type="password" id="gh-token" placeholder="github_pat_…" autocomplete="off" />
+        <div class="row">
+          <button class="btn" id="save-token">儲存</button>
+          <button class="btn ghost" id="test-token">測試連線</button>
+        </div>
+        <p class="footnote" id="token-status"></p>
+      </div>
+      <div class="card">
+        <h2>資料狀態</h2>
+        <ul class="status-list" id="status-list"></ul>
+      </div>
+      <div class="card">
+        <h2>關於</h2>
+        <p class="muted small" id="about-text"></p>
+        <p class="muted small">
+          推播（每日 16:20／19:15／週日 20:00）由 GitHub Actions 經 ntfy/Telegram 送出；
+          本 app 為查詢、回報與回顧介面。機率一律為區間，禁止假精確。
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav" aria-label="主導覽">
+    <button class="nav-btn active" data-tab="forecast">🌇<span>預報</span></button>
+    <button class="nav-btn" data-tab="log">📝<span>紀錄</span></button>
+    <button class="nav-btn" data-tab="settings">⚙️<span>設定</span></button>
+  </nav>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

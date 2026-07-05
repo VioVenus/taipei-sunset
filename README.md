@@ -125,9 +125,27 @@ Actions → 選 `on-demand-forecast`（或 `on-demand-report`）→ Run workflow
 - 校準時只用「當日最後一次 16:20 前後的預測」對 outcome。
 - `engine_version` 自 `v1.0.0` 起算，任何規則常數變動都要 bump。
 
+## PWA（手機 App）
+
+`web/` 是可安裝的 PWA（設計規格見 [docs/uiux.md](docs/uiux.md)）：
+
+- **部署**：merge 到 main 後由 `pages.yml` 自動發佈到 GitHub Pages
+  （repo Settings → Pages → Source 選「GitHub Actions」啟用一次即可）。
+- **安裝**：手機開啟 Pages 網址 → Android「安裝應用程式」／iOS「加入主畫面」。
+- **功能**：日期（今天～+3 天）× 點位查詢、判定卡、太陽時間軸、四情境機率條、
+  一鍵回報 A/B/C/D（設定 fine-grained token 後直接觸發 `on-demand-report`）、
+  本週統計與歷史紀錄。
+- **紀律**：太陽幾何本地計算（離線可用）；機率一律區間；初步展望明確標註；
+  API 失敗降級不崩潰。推播仍走 ntfy/Telegram（iOS Web Push 不可靠，不做）。
+- **雙實作防漂移**：評分引擎以 Python 為 canonical；
+  `scripts/gen_parity_fixtures.py` 產生 fixtures，CI 跑
+  `node --test web/test/parity.test.mjs` 比對 JS 移植版（solar/geometry/scoring）。
+- **本地開發**：`python -m http.server -d web`，瀏覽 `http://localhost:8000/?demo=1`
+  （demo 模式用擬真天氣，無網可跑）。
+
 ## Roadmap
 
-- **Phase 0（本版）**：規則引擎 v1、Open-Meteo、Telegram 推播、日誌。
-- Phase 1：CWA 交叉驗證實作、更多點位。
+- **Phase 0**：規則引擎 v1、Open-Meteo、推播、日誌。
+- **Phase 1（本版）**：PWA、週報、on-demand、ntfy。後續：CWA 交叉驗證、更多點位。
 - Phase 2：以累積 ≥60 天的日誌做校準與調參（門檻 60 天，樣本不足不調參）。
 - Phase 3：衛星雲圖／雷達整合。

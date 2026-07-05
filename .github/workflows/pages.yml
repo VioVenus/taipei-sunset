@@ -1,0 +1,45 @@
+# PWA 部署到 GitHub Pages。
+# 日誌 commit（daily/on-demand）也會觸發，讓站內打包的離線副本每日更新；
+# app 執行時仍優先抓 raw.githubusercontent 取最新日誌。
+name: deploy-pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", "data/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build site (static copy)
+        run: |
+          mkdir -p site/data/logs
+          cp -r web/. site/
+          rm -rf site/test
+          cp data/viewpoints.json site/data/
+          cp data/logs/*.csv site/data/logs/ 2>/dev/null || echo "no logs yet"
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

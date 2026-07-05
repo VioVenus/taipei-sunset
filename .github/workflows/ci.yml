@@ -1,0 +1,38 @@
+# CI：Python 測試 + lint + JS/Python parity（擋評分引擎兩份實作漂移）。
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Ruff
+        run: ruff check .
+
+      - name: Python tests
+        run: pytest -q
+
+      - name: Regenerate parity fixtures (Python = canonical)
+        run: python scripts/gen_parity_fixtures.py
+
+      - name: JS parity tests
+        run: node --test web/test/parity.test.mjs
