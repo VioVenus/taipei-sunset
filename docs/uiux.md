@@ -208,16 +208,11 @@
 - [ ] 回報：token 一鍵 dispatch 成功；無 token 深連結可用
 - [ ] 深/亮色完整；360px 寬無橫向捲動
 
-## 附錄 A：原生 App 路線（規劃，不在本版實作）
+## 附錄 A：原生 App 路線
 
-**結論：先不做原生。** PWA 安裝到主畫面後已覆蓋 90% 需求（全螢幕、icon、離線 shell）。剩下的 10%（可靠的系統級推播）由 ntfy app 補齊，成本近零。
-
-若日後仍要原生（觸發條件：iOS 推播必須整合進同一個 app、或需要背景定位提醒）：
-
-1. **殼**：Capacitor 包現有 web/（不重寫 UI）；`npx cap add ios android`。
-2. **推播**：Capacitor Push Notifications plugin（FCM/APNs）；發送端把現有 notify.py 加一個 FCM channel（需 Firebase 專案金鑰進 GitHub Secrets）。
-3. **發佈成本（誠實帳）**：Apple Developer USD 99/年＋審核、簽章、每年跟版；單人工具 ROI 低。
-4. **不變式**：評分引擎仍以 Python 為 canonical，原生殼內仍跑同一份 JS——絕不出現第三份實作。
+已依 UX 審查修訂並獨立成篇：見 **[native-app-plan.md](native-app-plan.md)**
+（差距分析、N0–N3 分階段觸發條件、架構不變式、風險退場）。
+UX 審查本身見 **[ux-review.md](ux-review.md)**。
 
 ## 附錄 B：與現有管線的關係
 

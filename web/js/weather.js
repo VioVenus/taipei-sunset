@@ -105,21 +105,26 @@ export async function fetchWeather(dateStr, lat, lon) {
   return insufficient(dateStr, `Open-Meteo API 失敗：${lastError}`);
 }
 
-/** Demo 模式：內建擬真天氣（理想帶＋雨後放晴），供展示與無網環境。 */
+/** Demo 模式：內建擬真天氣，供展示與無網環境。
+    今天固定理想帶＋雨後放晴；其他日期依日期字串決定性變化（讓三日概覽有差異）。 */
 export function demoWeather(dateStr) {
+  const seed = [...dateStr].reduce((s, c) => s + c.charCodeAt(0), 0);
+  const variant = seed % 3;
+  const presets = [
+    { cloudLow: 18, cloudMid: 35, cloudHigh: 52, precipProbEvening: 20, rainRecentFlag: true },
+    { cloudLow: 12, cloudMid: 10, cloudHigh: 22, precipProbEvening: 5, rainRecentFlag: false },
+    { cloudLow: 55, cloudMid: 45, cloudHigh: 30, precipProbEvening: 45, rainRecentFlag: false },
+  ];
+  const p = presets[variant];
   return {
     targetDate: dateStr,
     source: "demo",
     ok: true,
-    cloudLow: 18,
-    cloudMid: 35,
-    cloudHigh: 52,
-    cloudTotal: 62,
+    cloudTotal: Math.max(p.cloudLow, p.cloudMid, p.cloudHigh) + 10,
     visibilityM: 21000,
-    precipProbWindow: 18,
-    precipProbEvening: 20,
+    precipProbWindow: p.precipProbEvening,
     precipWindowMm: 0,
-    rainRecentFlag: true,
     fetchedAt: Date.now(),
+    ...p,
   };
 }
