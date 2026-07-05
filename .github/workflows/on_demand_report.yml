@@ -1,0 +1,57 @@
+# 隨時回報實際結果：手機 GitHub app 按 Run workflow 選 A/B/C/D，
+# 寫入 outcomes.csv 並 commit（成為隔日持續性加成與校準的資料來源）。
+name: on-demand-report
+
+on:
+  workflow_dispatch:
+    inputs:
+      outcome:
+        description: "今晚實際結果"
+        type: choice
+        options: [A, B, C, D]
+        required: true
+      date:
+        description: "結果所屬日期（今天|YYYY-MM-DD）"
+        default: "今天"
+      note:
+        description: "備註（選填）"
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sunset-logs
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: pip install .
+
+      - name: Append outcome
+        env:
+          IN_DATE: ${{ inputs.date }}
+          IN_NOTE: ${{ inputs.note }}
+        run: python -m sunset report --outcome "${{ inputs.outcome }}" --date "$IN_DATE" --note "$IN_NOTE"
+
+      - name: Commit outcome log (append-only)
+        run: |
+          git config user.name "sunset-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/logs/outcomes.csv
+          if git diff --cached --quiet; then
+            echo "no outcome log changes"
+          else
+            git commit -m "log: outcome report $(date -u +%Y-%m-%dT%H:%MZ)"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

@@ -2,8 +2,10 @@
 
 子指令：
 - analyze --date 2026-07-04 --viewpoint jiantan_laodifang：單點完整分析
+  （--send 推播結果、--log 寫入預測日誌 → 供 on-demand workflow 使用）
 - push-daily：每日 16:20 推播（分析全點位 → 推薦 → 推播 → 寫預測日誌）
 - prompt-outcome：19:15 推播詢問今日實際結果
+- weekly-review：週報（過去 7 天預測 vs 回報 + 未來展望）
 - report --outcome A|B|C|D [--note ...]：寫入結果日誌
 - viewpoints：列出已建檔點位
 - bot：本地長輪詢 Telegram bot（/sunset /report /viewpoints）
@@ -17,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sunset import analysis as analysis_mod
-from sunset import logbook, telegram_io
+from sunset import logbook, notify, review, telegram_io
 from sunset.geometry import load_viewpoints
 from sunset.solar import TAIPEI_TZ
 from sunset.weather import OpenMeteoFetcher
@@ -33,12 +35,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p_analyze.add_argument("--date", required=True, help="今天|明天|後天|YYYY-MM-DD")
     p_analyze.add_argument("--viewpoint", default=None, help="點位 id（預設自動推薦）")
     p_analyze.add_argument("--front", action="store_true", help="鋒面/颱風外圍 48h 內（人工 flag）")
+    p_analyze.add_argument("--send", action="store_true", help="把結果推播出去（on-demand）")
+    p_analyze.add_argument("--log", action="store_true", help="寫入預測日誌")
 
     p_push = sub.add_parser("push-daily", help="每日 16:20 推播 + 寫預測日誌")
     p_push.add_argument("--front", action="store_true", help="鋒面/颱風外圍 48h 內（人工 flag）")
     p_push.add_argument("--no-send", action="store_true", help="只印出訊息，不實際推播")
 
     sub.add_parser("prompt-outcome", help="19:15 推播詢問今日實際結果")
+
+    p_weekly = sub.add_parser("weekly-review", help="週報：過去 7 天回顧 + 未來展望")
+    p_weekly.add_argument("--no-send", action="store_true", help="只印出訊息，不實際推播")
+    p_weekly.add_argument("--no-outlook", action="store_true", help="不打天氣 API，只出回顧")
 
     p_report = sub.add_parser("report", help="回報實際結果 → outcomes.csv")
     p_report.add_argument("--outcome", required=True, choices=logbook.VALID_OUTCOMES)
@@ -95,6 +103,19 @@ def _log_predictions(results: list[analysis_mod.AnalysisResult], logs_dir: Path 
         )
 
 
+def _send_or_note(text: str) -> int:
+    """推播到所有已設定通道；沒有通道時提示，推播失敗回傳 1。"""
+    if not notify.any_configured():
+        print("（未設定推播通道 TELEGRAM_*/NTFY_TOPIC，僅輸出至 stdout）", file=sys.stderr)
+        return 0
+    sent = notify.send_push(text)
+    if not sent:
+        print("推播失敗（所有通道）", file=sys.stderr)
+        return 1
+    print(f"（已推播：{'、'.join(sent)}）", file=sys.stderr)
+    return 0
+
+
 def _cmd_analyze(args: argparse.Namespace) -> int:
     target_date = telegram_io.parse_date_arg(args.date)
     results = _analyze_all(args, target_date, args.front)
@@ -104,13 +125,18 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
             known = ", ".join(r.viewpoint.id for r in results)
             print(f"找不到點位 {args.viewpoint!r}，已建檔點位：{known}", file=sys.stderr)
             return 1
-        print(telegram_io.format_analysis(chosen[0]))
+        text = telegram_io.format_analysis(chosen[0])
     else:
         recommended = analysis_mod.recommend(results)
         if recommended is None:
             print("所有點位皆資料不足或對位警告，無法推薦。", file=sys.stderr)
             return 1
-        print(telegram_io.format_daily_push(recommended, results))
+        text = telegram_io.format_daily_push(recommended, results)
+    print(text)
+    if args.log:
+        _log_predictions(results, args.logs_dir)
+    if args.send:
+        return _send_or_note(text)
     return 0
 
 
@@ -125,12 +151,7 @@ def _cmd_push_daily(args: argparse.Namespace) -> int:
     print(text)
     _log_predictions(results, args.logs_dir)
     if not args.no_send:
-        client = telegram_io.TelegramClient()
-        if not client.configured:
-            print("（未設定 TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID，僅輸出至 stdout）", file=sys.stderr)
-        elif not client.send_message(text):
-            print("Telegram 推播失敗（已寫入預測日誌）", file=sys.stderr)
-            return 1
+        return _send_or_note(text)
     return 0
 
 
@@ -138,11 +159,24 @@ def _cmd_prompt_outcome(args: argparse.Namespace) -> int:
     today = datetime.now(TAIPEI_TZ).date()
     text = telegram_io.format_outcome_prompt(today)
     print(text)
-    client = telegram_io.TelegramClient()
-    if not client.configured:
-        print("（未設定 Telegram secrets，僅輸出至 stdout）", file=sys.stderr)
-        return 0
-    return 0 if client.send_message(text) else 1
+    return _send_or_note(text)
+
+
+def _cmd_weekly_review(args: argparse.Namespace) -> int:
+    today = datetime.now(TAIPEI_TZ).date()
+    stats = review.build_weekly_stats(today, args.logs_dir)
+    outlooks: list[analysis_mod.AnalysisResult] = []
+    if not args.no_outlook:
+        for offset in (1, 2):
+            results = _analyze_all(args, today + timedelta(days=offset), front=False)
+            best = analysis_mod.recommend(results)
+            if best is not None:
+                outlooks.append(best)
+    text = review.format_weekly_review(stats, tuple(outlooks))
+    print(text)
+    if not args.no_send:
+        return _send_or_note(text)
+    return 0
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
@@ -224,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         "analyze": _cmd_analyze,
         "push-daily": _cmd_push_daily,
         "prompt-outcome": _cmd_prompt_outcome,
+        "weekly-review": _cmd_weekly_review,
         "report": _cmd_report,
         "viewpoints": _cmd_viewpoints,
         "bot": _cmd_bot,

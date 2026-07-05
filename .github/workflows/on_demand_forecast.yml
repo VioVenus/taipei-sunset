@@ -1,12 +1,18 @@
-# 每日 16:20（台北）日落判定推播 + 預測日誌 commit。
-# 16:20 Asia/Taipei = 08:20 UTC。GitHub Actions cron 有 ±數分鐘飄移，可接受。
-name: daily-forecast
+# 隨時查詢：手機 GitHub app 或網頁 Actions 頁面按 Run workflow 即可，
+# 分析結果推播到已設定的通道（Telegram / ntfy），並寫入預測日誌。
+name: on-demand-forecast
 
 on:
-  schedule:
-    - cron: "20 8 * * *"
   workflow_dispatch:
     inputs:
+      date:
+        description: "今天|明天|後天|YYYY-MM-DD"
+        default: "今天"
+      viewpoint:
+        description: "點位（auto = 自動推薦）"
+        type: choice
+        options: [auto, jiantan_laodifang, dadaocheng_wharf]
+        default: auto
       front_flag:
         description: "鋒面/颱風外圍 48h 內（人工 flag）"
         type: boolean
@@ -32,15 +38,18 @@ jobs:
       - name: Install package
         run: pip install .
 
-      - name: Run daily forecast (analyze -> push -> log)
+      - name: Analyze and push
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          IN_DATE: ${{ inputs.date }}
+          IN_VIEWPOINT: ${{ inputs.viewpoint }}
         run: |
-          FRONT=""
-          if [ "${{ inputs.front_flag }}" = "true" ]; then FRONT="--front"; fi
-          python -m sunset push-daily $FRONT
+          ARGS=(analyze --date "$IN_DATE" --send --log)
+          if [ "$IN_VIEWPOINT" != "auto" ]; then ARGS+=(--viewpoint "$IN_VIEWPOINT"); fi
+          if [ "${{ inputs.front_flag }}" = "true" ]; then ARGS+=(--front); fi
+          python -m sunset "${ARGS[@]}"
 
       - name: Commit prediction log (append-only)
         run: |
@@ -50,7 +59,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "no prediction log changes"
           else
-            git commit -m "log: daily prediction $(date -u +%Y-%m-%dT%H:%MZ)"
+            git commit -m "log: on-demand prediction $(date -u +%Y-%m-%dT%H:%MZ)"
             git pull --rebase origin "${GITHUB_REF_NAME}"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
