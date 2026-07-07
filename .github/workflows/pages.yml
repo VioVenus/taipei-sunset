@@ -21,6 +21,9 @@ concurrency:
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
+    # 只在公開 repo 部署 Pages。私有 dev repo（VioVenus/Claude）無 Pages 權限，
+    # configure-pages 會回 "Resource not accessible by integration" — 在該處直接跳過。
+    if: github.repository == 'VioVenus/taipei-sunset'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
