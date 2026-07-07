@@ -21,6 +21,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # 不保留 checkout 的 GITHUB_TOKEN 憑證，否則它會以 extraheader 蓋掉
+          # 下方 push URL 內嵌的 PUBLIC_REPO_TOKEN（導致以 github-actions[bot] 身分被 403）
+          persist-credentials: false
 
       - name: Push to public repo
         env:
