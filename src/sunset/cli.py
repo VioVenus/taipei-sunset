@@ -48,6 +48,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p_weekly.add_argument("--no-send", action="store_true", help="只印出訊息，不實際推播")
     p_weekly.add_argument("--no-outlook", action="store_true", help="不打天氣 API，只出回顧")
 
+    p_ingest = sub.add_parser("ingest-report", help="解析 Issue Form 回報 → reports.csv")
+    p_ingest.add_argument("--body-file", type=Path, required=True, help="issue body 檔案")
+    p_ingest.add_argument("--reporter", required=True, help="GitHub login")
+    p_ingest.add_argument("--source", default="issue", help="來源標記（如 issue#12）")
+
     p_report = sub.add_parser("report", help="回報實際結果 → outcomes.csv")
     p_report.add_argument("--outcome", required=True, choices=logbook.VALID_OUTCOMES)
     p_report.add_argument("--viewpoint", default="", help="點位 id（可留空）")
@@ -179,6 +184,15 @@ def _cmd_weekly_review(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_ingest_report(args: argparse.Namespace) -> int:
+    from sunset import ingest  # 延遲載入，避免一般指令多付 import 成本
+
+    body = args.body_file.read_text(encoding="utf-8")
+    result = ingest.ingest(body, args.reporter, args.source, args.logs_dir)
+    print(result.message)
+    return 0 if result.ok else 1
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     target_date = telegram_io.parse_date_arg(args.date)
     path = logbook.append_outcome(
@@ -259,6 +273,7 @@ def main(argv: list[str] | None = None) -> int:
         "push-daily": _cmd_push_daily,
         "prompt-outcome": _cmd_prompt_outcome,
         "weekly-review": _cmd_weekly_review,
+        "ingest-report": _cmd_ingest_report,
         "report": _cmd_report,
         "viewpoints": _cmd_viewpoints,
         "bot": _cmd_bot,

@@ -24,12 +24,13 @@ CALIBRATION_MIN_DAYS = 60
 
 @dataclass(frozen=True)
 class DayReview:
-    """單日回顧：當日最後一次預測 vs 實際回報。"""
+    """單日回顧：當日最後一次預測 vs 群眾共識結果。"""
 
     target_date: date
     predicted_cd: float | None  # 最後一次預測的 C+D
     verdict: str | None
-    outcome: str | None  # A|B|C|D，未回報為 None
+    outcome: str | None  # 共識結果 A|B|C|D，未回報為 None
+    report_count: int = 0  # 該日回報人數
 
     @property
     def burned(self) -> bool | None:
@@ -60,20 +61,21 @@ class WeeklyStats:
 def build_weekly_stats(end_date: date, logs_dir: Path | None = None) -> WeeklyStats:
     """彙整 [end_date-6, end_date] 的預測與回報。"""
     predictions = logbook.read_predictions(logs_dir)
-    outcomes = logbook.read_outcomes(logs_dir)
+    pool = logbook.all_reports(logs_dir)
     days: list[DayReview] = []
     for offset in range(REVIEW_DAYS - 1, -1, -1):
         day = end_date - timedelta(days=offset)
         iso = day.isoformat()
         rows = [r for r in predictions if r["target_date"] == iso]
         last = max(rows, key=lambda r: r["predicted_at_utc"]) if rows else None
-        outcome_rows = [o for o in outcomes if o["target_date"] == iso]
+        reporters = {r.get("reporter") or "anonymous" for r in pool if r["target_date"] == iso}
         days.append(
             DayReview(
                 target_date=day,
                 predicted_cd=(float(last["prob_C"]) + float(last["prob_D"])) if last else None,
                 verdict=last["verdict"] if last else None,
-                outcome=outcome_rows[-1]["outcome"] if outcome_rows else None,
+                outcome=logbook.consensus_outcome(day, logs_dir),
+                report_count=len(reporters),
             )
         )
     return WeeklyStats(
@@ -99,7 +101,11 @@ def format_weekly_review(stats: WeeklyStats, outlooks: tuple[AnalysisResult, ...
     lines = [f"📊 火燒雲週報 {_md(stats.start_date)}–{_md(stats.end_date)}"]
     predicted = stats.predicted_days
     reported = stats.reported_days
-    lines.append(f"・預測 {len(predicted)}/{REVIEW_DAYS} 天｜結果回報 {len(reported)}/{REVIEW_DAYS} 天")
+    total_reports = sum(d.report_count for d in stats.days)
+    crowd = f"（共 {total_reports} 人次回報）" if total_reports > len(reported) else ""
+    lines.append(
+        f"・預測 {len(predicted)}/{REVIEW_DAYS} 天｜結果回報 {len(reported)}/{REVIEW_DAYS} 天{crowd}"
+    )
 
     missing = [d for d in stats.days if d.predicted_cd is not None and d.outcome is None]
     if missing:

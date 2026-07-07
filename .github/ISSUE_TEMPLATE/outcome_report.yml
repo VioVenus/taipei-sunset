@@ -1,0 +1,40 @@
+name: 🌇 回報今晚實際結果
+description: 看完日落回報 A/B/C/D，你的回報會自動進入校準資料（機器人會自動處理並關閉這張 issue）
+title: "[回報] 今晚實際結果"
+labels: ["outcome-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感謝回報！送出後機器人會自動記錄並關閉這張 issue。
+        同一人同一天多次回報只採計最新一筆；多人回報以多數決聚合。
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: 今晚實際結果
+      options:
+        - A 全擋沒看到（低雲/降雨全面遮擋）
+        - B 普通橘色夕陽（看得到但無戲劇性）
+        - C 局部火燒雲
+        - D 全面火燒雲
+    validations:
+      required: true
+  - type: input
+    id: date
+    attributes:
+      label: 日期
+      description: 留空或填「今天」；跨午夜補報可填「昨天」或 YYYY-MM-DD（僅限兩天內）
+      placeholder: 今天
+  - type: dropdown
+    id: viewpoint
+    attributes:
+      label: 點位
+      options:
+        - jiantan_laodifang（劍潭山老地方觀機平台）
+        - dadaocheng_wharf（大稻埕碼頭）
+        - 其他／不確定
+  - type: input
+    id: note
+    attributes:
+      label: 備註
+      description: 選填，例如「西北側局部燒約 10 分鐘」（會公開顯示，勿填個資）

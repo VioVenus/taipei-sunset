@@ -46,7 +46,10 @@
     <section id="tab-log" class="tab" aria-label="紀錄">
       <div class="card full">
         <h2 id="report-title">今晚實際結果？</h2>
-        <p class="muted small">回報寫入 outcomes.csv（append-only），是明日持續性加成與校準的資料來源。</p>
+        <p class="muted small">
+          回報是校準資料的來源：多人回報以多數決聚合，同一人同一天只採計最新一筆。
+          未設 token 時會開啟 GitHub 回報表單（需 GitHub 帳號，內容公開）。
+        </p>
         <div class="report-grid">
           <button class="report-btn oa" data-outcome="A">A<span>全擋沒看到</span></button>
           <button class="report-btn ob" data-outcome="B">B<span>普通橘色</span></button>

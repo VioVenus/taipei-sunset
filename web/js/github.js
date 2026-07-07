@@ -1,10 +1,24 @@
 // GitHub 一鍵回報：以 fine-grained PAT 呼叫 workflow_dispatch（api.github.com 支援 CORS）。
 // Token 只存 localStorage，絕不進任何遠端（除了 GitHub API 本身的 Authorization header）。
 
-import { BRANCH, REPO } from "./logs.js";
+import { BRANCH, REPO } from "./config.js";
 
 const TOKEN_KEY = "sunset.gh_token";
 export const ACTIONS_URL = `https://github.com/${REPO}/actions/workflows/on_demand_report.yml`;
+export const FEEDBACK_URL = `https://github.com/${REPO}/issues/new?template=feedback.yml`;
+
+/** 公開回報路徑：預填的 Issue Form（任何 GitHub 使用者可用，機器人自動 ingest）。 */
+export function reportIssueUrl(outcome, note = "") {
+  const labels = { A: "A 全擋沒看到（低雲/降雨全面遮擋）", B: "B 普通橘色夕陽（看得到但無戲劇性）",
+    C: "C 局部火燒雲", D: "D 全面火燒雲" };
+  const params = new URLSearchParams({
+    template: "outcome_report.yml",
+    outcome: labels[outcome] || "",
+    date: "今天",
+  });
+  if (note) params.set("note", note);
+  return `https://github.com/${REPO}/issues/new?${params}`;
+}
 
 export function getToken() {
   try {
