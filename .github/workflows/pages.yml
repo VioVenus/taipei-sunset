@@ -27,8 +27,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build site (static copy)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build site (static copy + generate icons)
         run: |
+          python scripts/gen_icons.py
           mkdir -p site/data/logs
           cp -r web/. site/
           rm -rf site/test
