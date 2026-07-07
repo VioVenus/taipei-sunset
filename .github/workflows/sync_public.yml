@@ -1,6 +1,9 @@
 # 一次性遷移／之後可重複使用的同步：把本分支完整推到公開 repo taipei-sunset 的 main。
-# 需要 secret PUBLIC_REPO_TOKEN：fine-grained PAT，Repository access 只勾 taipei-sunset，
-# 權限 Contents: Read and write。
+# 需要 secret PUBLIC_REPO_TOKEN：**classic** PAT，勾 `repo` + `workflow` 兩個 scope。
+# 為何必須 classic + workflow：本專案含 .github/workflows/*，GitHub 拒絕缺 workflow
+# scope 的 PAT 推送工作流程檔；fine-grained PAT 無對應權限、無法推 workflow 檔。
+# （classic `repo` 會授權所有 repo，同步完成後可刪除此 token。）
+# 替代路徑：本機以 SSH 推送（SSH 金鑰不受 workflow scope 限制），見 docs/public-plan.md §8。
 name: sync-public
 
 on:
