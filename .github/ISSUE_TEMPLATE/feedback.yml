@@ -1,0 +1,22 @@
+name: 💬 產品回饋／問題回報
+description: 預測不準、app 壞了、想要新功能——都用這個
+labels: ["feedback"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 類型
+      options:
+        - 預測與實際差很多（請附日期）
+        - App/網頁問題
+        - 功能建議
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: 說明
+      description: 若是預測問題請附日期與當天實際狀況；若是 app 問題請附手機型號/瀏覽器
+    validations:
+      required: true

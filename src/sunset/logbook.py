@@ -46,6 +46,19 @@ OUTCOMES_HEADER = [
     "note",
 ]
 
+# 公開版群眾回報表：任何人透過 Issue Form 回報都落在這裡（append-only）。
+# outcomes.csv 保留為擁有者/既有管道，聚合時視為 reporter="owner"。
+REPORTS_FILENAME = "reports.csv"
+REPORTS_HEADER = [
+    "target_date",
+    "reported_at_utc",
+    "outcome",
+    "viewpoint_id",
+    "note",
+    "reporter",
+    "source",
+]
+
 VALID_OUTCOMES = ("A", "B", "C", "D")
 BURN_OUTCOMES = ("C", "D")  # 視為「有燒」的結果
 
@@ -78,6 +91,19 @@ class OutcomeRecord:
     outcome: str  # A|B|C|D
     viewpoint_id: str
     note: str = ""
+
+
+@dataclass(frozen=True)
+class ReportRecord:
+    """群眾回報（一位回報者一筆；同人同日多筆只取最新）。"""
+
+    target_date: date
+    reported_at_utc: datetime
+    outcome: str  # A|B|C|D
+    viewpoint_id: str
+    note: str
+    reporter: str  # GitHub login 或 "owner"
+    source: str  # 例如 "issue#12"、"app"、"cli"
 
 
 def _fmt(value: float | None) -> str:
@@ -159,9 +185,75 @@ def read_outcomes(logs_dir: Path | None = None) -> list[dict[str, str]]:
         return list(csv.DictReader(fh))
 
 
-def burned_on(target_date: date, logs_dir: Path | None = None) -> bool:
-    """該日是否有任何點位實際回報 C 或 D（持續性加成的資料來源）。"""
-    return any(
-        row["target_date"] == target_date.isoformat() and row["outcome"] in BURN_OUTCOMES
-        for row in read_outcomes(logs_dir)
+def append_report(record: ReportRecord, logs_dir: Path | None = None) -> Path:
+    """寫入一筆群眾回報（append-only）。"""
+    if record.outcome not in VALID_OUTCOMES:
+        raise ValueError(f"outcome 必須是 {VALID_OUTCOMES} 之一，收到 {record.outcome!r}")
+    path = (logs_dir or DEFAULT_LOGS_DIR) / REPORTS_FILENAME
+    _append_row(
+        path,
+        REPORTS_HEADER,
+        [
+            record.target_date.isoformat(),
+            record.reported_at_utc.astimezone(UTC).isoformat(),
+            record.outcome,
+            record.viewpoint_id,
+            record.note,
+            record.reporter,
+            record.source,
+        ],
     )
+    return path
+
+
+def read_reports(logs_dir: Path | None = None) -> list[dict[str, str]]:
+    path = (logs_dir or DEFAULT_LOGS_DIR) / REPORTS_FILENAME
+    if not path.exists():
+        return []
+    with path.open(encoding="utf-8", newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def all_reports(logs_dir: Path | None = None) -> list[dict[str, str]]:
+    """合併回報池：outcomes.csv（視為 reporter='owner'）∪ reports.csv。"""
+    merged = [
+        {**row, "reporter": "owner", "source": row.get("source", "legacy")}
+        for row in read_outcomes(logs_dir)
+    ]
+    merged.extend(read_reports(logs_dir))
+    return merged
+
+
+def _latest_votes(target_date: date, logs_dir: Path | None = None) -> dict[str, str]:
+    """該日每位回報者的最新一票：reporter → outcome。"""
+    iso = target_date.isoformat()
+    votes: dict[str, tuple[str, str]] = {}  # reporter → (reported_at, outcome)
+    for row in all_reports(logs_dir):
+        if row["target_date"] != iso or row["outcome"] not in VALID_OUTCOMES:
+            continue
+        reporter = row.get("reporter") or "anonymous"
+        at = row.get("reported_at_utc", "")
+        if reporter not in votes or at >= votes[reporter][0]:
+            votes[reporter] = (at, row["outcome"])
+    return {reporter: outcome for reporter, (_, outcome) in votes.items()}
+
+
+def consensus_outcome(target_date: date, logs_dir: Path | None = None) -> str | None:
+    """該日共識結果字母：眾數；平手取較保守（A<B<C<D 取較前者）；無回報 → None。"""
+    votes = list(_latest_votes(target_date, logs_dir).values())
+    if not votes:
+        return None
+    counts = {o: votes.count(o) for o in VALID_OUTCOMES if o in votes}
+    best = max(counts.values())
+    return next(o for o in VALID_OUTCOMES if counts.get(o) == best)
+
+
+def burned_on(target_date: date, logs_dir: Path | None = None) -> bool:
+    """該日是否「有燒」：燒（C/D）票數 > 非燒（A/B）票數（持續性加成的資料來源）。
+
+    多人回報時以多數決聚合，平手取保守（不算有燒）；
+    單人時代表其最新回報，與單人版行為一致。
+    """
+    votes = _latest_votes(target_date, logs_dir).values()
+    burn = sum(1 for v in votes if v in BURN_OUTCOMES)
+    return burn > len(votes) - burn

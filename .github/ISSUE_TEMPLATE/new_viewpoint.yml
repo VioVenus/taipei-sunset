@@ -1,0 +1,41 @@
+name: 📍 提議新觀景點位
+description: 提議把一個新點位加入建檔（需人工實測驗證後才會入庫——歷史教訓 1：座標禁止臨場猜測）
+title: "[點位] "
+labels: ["viewpoint-proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        點位入庫是人工流程：維護者會依 CONTRIBUTING.md 的檢查清單實測驗證後才合併。
+        資料越完整，驗證越快。
+  - type: input
+    id: name
+    attributes:
+      label: 點位名稱
+    validations:
+      required: true
+  - type: input
+    id: coords
+    attributes:
+      label: 座標（十進位經緯度）
+      description: 例如 25.0904311, 121.5367826（請實地用 GPS 定位，不要用地圖目測）
+    validations:
+      required: true
+  - type: input
+    id: azimuth
+    attributes:
+      label: 開闊視線方位範圍（度）
+      description: 例如 250–320（現場用指北針/app 實測西向開闊範圍）
+    validations:
+      required: true
+  - type: textarea
+    id: obstruction
+    attributes:
+      label: 地平線遮蔽（若有）
+      description: 哪個方位範圍被什麼擋住、目測仰角幾度
+  - type: textarea
+    id: access
+    attributes:
+      label: 交通與退場方式
+    validations:
+      required: true

@@ -1,0 +1,35 @@
+# 一次性遷移／之後可重複使用的同步：把本分支完整推到公開 repo taipei-sunset 的 main。
+# 需要 secret PUBLIC_REPO_TOKEN：fine-grained PAT，Repository access 只勾 taipei-sunset，
+# 權限 Contents: Read and write。
+name: sync-public
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "輸入 push 以確認（會 force-push 覆蓋 taipei-sunset 的 main）"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    if: inputs.confirm == 'push'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push to public repo
+        env:
+          TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::未設定 PUBLIC_REPO_TOKEN secret"; exit 1
+          fi
+          git push --force \
+            "https://x-access-token:${TOKEN}@github.com/VioVenus/taipei-sunset.git" \
+            "HEAD:main"
+          echo "✅ 已推送 $(git rev-parse --short HEAD) → taipei-sunset:main"

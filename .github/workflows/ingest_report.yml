@@ -1,0 +1,77 @@
+# 群眾回報自動 ingest：outcome-report issue 開啟 → 解析驗證 → reports.csv → 回覆並關閉。
+# 濫用防護：需 GitHub 帳號（平台層擋機器人）、驗證失敗不落檔、
+# 同人同日只採計最新、聚合用多數決（單一亂報者無法翻轉共識）。
+name: ingest-report
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sunset-logs
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    if: contains(github.event.issue.labels.*.name, 'outcome-report')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install package
+        run: pip install .
+
+      - name: Parse and append report
+        id: ingest
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          REPORTER: ${{ github.event.issue.user.login }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          printf '%s' "$ISSUE_BODY" > /tmp/body.md
+          set +e
+          python -m sunset ingest-report \
+            --body-file /tmp/body.md \
+            --reporter "$REPORTER" \
+            --source "issue#$ISSUE_NUMBER" > /tmp/reply.md
+          echo "ok=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          cat /tmp/reply.md
+
+      - name: Commit report log (append-only)
+        if: steps.ingest.outputs.ok == '0'
+        run: |
+          git config user.name "sunset-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/logs/reports.csv
+          if git diff --cached --quiet; then
+            echo "no report changes"
+          else
+            git commit -m "log: crowd report issue#${{ github.event.issue.number }}"
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
+
+      - name: Reply and close issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" --body-file /tmp/reply.md
+          if [ "${{ steps.ingest.outputs.ok }}" = "0" ]; then
+            gh issue close "${{ github.event.issue.number }}" \
+              --repo "${{ github.repository }}" --reason completed
+          else
+            gh issue edit "${{ github.event.issue.number }}" \
+              --repo "${{ github.repository }}" --add-label invalid
+            gh issue close "${{ github.event.issue.number }}" \
+              --repo "${{ github.repository }}" --reason "not planned"
+          fi

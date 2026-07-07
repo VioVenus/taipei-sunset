@@ -27,8 +27,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build site (static copy)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build site (static copy + generate icons)
         run: |
+          python scripts/gen_icons.py
           mkdir -p site/data/logs
           cp -r web/. site/
           rm -rf site/test
@@ -36,6 +41,8 @@ jobs:
           cp data/logs/*.csv site/data/logs/ 2>/dev/null || echo "no logs yet"
 
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true  # 首次部署自動啟用 Pages（失敗則到 Settings→Pages 手動選 GitHub Actions）
 
       - uses: actions/upload-pages-artifact@v3
         with:

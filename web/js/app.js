@@ -5,7 +5,14 @@ import { demoWeather, fetchWeather } from "./weather.js";
 import { dateLabel, hhmm, intervalStr, taipeiDatePlus } from "./format.js";
 import { ENGINE_VERSION, probInterval } from "./scoring.js";
 import { loadLogs, weeklyStats } from "./logs.js";
-import { ACTIONS_URL, dispatchReport, getToken, setToken, testToken } from "./github.js";
+import {
+  dispatchReport,
+  FEEDBACK_URL,
+  getToken,
+  reportIssueUrl,
+  setToken,
+  testToken,
+} from "./github.js";
 import { TAIPEI_UTC_OFFSET_H } from "./solar.js";
 
 const DEMO = new URLSearchParams(location.search).has("demo");
@@ -352,7 +359,7 @@ async function renderLog() {
           <td>${dateLabel(d.date)}</td>
           <td>${esc(d.verdict ?? "—")}</td>
           <td>${d.predictedCd !== null ? intervalStr(d.predictedCd) : "—"}</td>
-          <td>${d.outcome ? `<i class="dot s${d.outcome.toLowerCase()}"></i>${d.outcome}` : "未回報"}</td>
+          <td>${d.outcome ? `<i class="dot s${d.outcome.toLowerCase()}"></i>${d.outcome}${d.reportCount > 1 ? `<span class="muted">（${d.reportCount} 人）</span>` : ""}` : "未回報"}</td>
         </tr>`).join("")}</tbody>
     </table>` : `<p class="muted small">尚無紀錄。</p>`);
 }
@@ -362,8 +369,9 @@ async function handleReport(outcome) {
   const status = $("report-status");
   const today = taipeiDatePlus(0);
   if (!getToken()) {
-    status.innerHTML = `未設定 token → 請在開啟的 GitHub 頁面按 Run workflow（outcome=${outcome}）`;
-    window.open(ACTIONS_URL, "_blank", "noopener");
+    // 公開回報路徑：預填 Issue Form，登入 GitHub 即可送出，機器人自動記錄
+    status.textContent = `已開啟回報表單（${outcome} 已預填）→ 按 Submit 即完成，機器人會自動記錄`;
+    window.open(reportIssueUrl(outcome, note), "_blank", "noopener");
     return;
   }
   if (!confirm(`回報 ${today} 實際結果為「${outcome}」？`)) return;
@@ -384,6 +392,8 @@ function renderSettings() {
     `Open-Meteo：${state.lastFetchMs ? `最近成功 ${hhmm(state.lastFetchMs)}${state.weatherStale ? "（目前離線快取）" : ""}` : "尚未取得"}`,
     `日誌來源：raw.githubusercontent.com（失敗退回站內副本）`,
     `模式：${DEMO ? "DEMO（擬真資料）" : "正式"}`,
+    `天氣資料：<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>（CC BY 4.0）`,
+    `<a href="${FEEDBACK_URL}" target="_blank" rel="noopener">💬 回饋與建議（GitHub）</a>`,
   ];
   $("status-list").innerHTML = items.map((i) => `<li>${i}</li>`).join("");
 }
