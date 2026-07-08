@@ -1,7 +1,8 @@
 // 評分引擎 v1 —— 從 src/sunset/scoring.py 逐式移植。
 // Python 為 canonical：常數與流程不得在此單方面更動（parity 測試會擋）。
 
-export const ENGINE_VERSION = "v1.0.0";
+// v1.1.0：動態不確定性區間（多模式分歧 → 區間加寬）；機率分配規則與 v1.0.0 相同。
+export const ENGINE_VERSION = "v1.1.0";
 
 export const LOW_CLEAR_MAX = 30.0;
 export const MID_HIGH_IDEAL_MIN = 30.0;
@@ -24,11 +25,24 @@ export const BONUS_DAILY_CAP = 25.0;
 export const ANTI_PESSIMISM_HIGH_MIN = 20.0;
 export const ANTI_PESSIMISM_CD_FLOOR = 15.0;
 export const PROB_INTERVAL_HALF_WIDTH = 10.0;
+export const PROB_INTERVAL_MAX_HALF_WIDTH = 25.0;
+export const INTERVAL_SPREAD_THRESHOLD = 10.0;
+export const INTERVAL_SPREAD_FACTOR = 0.5;
 
-/** 點估 → [lo, hi] 區間（±10，夾在 0–100）。 */
-export function probInterval(point) {
-  const lo = Math.max(0, point - PROB_INTERVAL_HALF_WIDTH);
-  const hi = Math.min(100, point + PROB_INTERVAL_HALF_WIDTH);
+/** 多模式分歧 → 區間半寬（與 Python scoring.dynamic_half_width 同規則）。 */
+export function dynamicHalfWidth(modelSpread) {
+  if (modelSpread === null || modelSpread === undefined) return PROB_INTERVAL_HALF_WIDTH;
+  const widened =
+    PROB_INTERVAL_HALF_WIDTH +
+    INTERVAL_SPREAD_FACTOR * Math.max(0, modelSpread - INTERVAL_SPREAD_THRESHOLD);
+  return Math.min(PROB_INTERVAL_MAX_HALF_WIDTH, Math.max(PROB_INTERVAL_HALF_WIDTH, widened));
+}
+
+/** 點估 → [lo, hi] 區間（±halfWidth，夾在 0–100）。 */
+export function probInterval(point, halfWidth) {
+  const hw = halfWidth === null || halfWidth === undefined ? PROB_INTERVAL_HALF_WIDTH : halfWidth;
+  const lo = Math.max(0, point - hw);
+  const hi = Math.min(100, point + hw);
   return [Math.round(lo), Math.round(hi)];
 }
 

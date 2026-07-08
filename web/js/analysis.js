@@ -9,7 +9,7 @@ import {
   TAIPEI_UTC_OFFSET_H,
 } from "./solar.js";
 import { assessAlignment, assessObstruction } from "./geometry.js";
-import { score } from "./scoring.js";
+import { dynamicHalfWidth, score } from "./scoring.js";
 
 export const VERDICT_GO_CD_MIN = 25.0;
 export const VERDICT_GO_VISIBLE_MIN = 50.0;
@@ -77,6 +77,7 @@ export function analyze(dateStr, viewpoint, weather, nowMs = Date.now()) {
     probs,
     verdict,
     preliminary,
+    intervalHalfWidth: dynamicHalfWidth(weather?.modelSpread ?? null),
   };
 }
 

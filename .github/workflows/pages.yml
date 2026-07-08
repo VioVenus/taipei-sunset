@@ -40,7 +40,7 @@ jobs:
           mkdir -p site/data/logs
           cp -r web/. site/
           rm -rf site/test
-          cp data/viewpoints.json site/data/
+          cp data/viewpoints.json data/cams.json site/data/
           cp data/logs/*.csv site/data/logs/ 2>/dev/null || echo "no logs yet"
 
       - uses: actions/configure-pages@v5

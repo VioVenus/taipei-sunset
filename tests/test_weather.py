@@ -122,7 +122,7 @@ def test_missing_hour_value_degrades():
     assert not window.ok
 
 
-def test_cwa_stub_skips_without_key():
-    window = CWAFetcher(api_key=None).fetch(TARGET, 25.09, 121.54)
-    assert not window.ok
-    assert "CWA" in (window.error or "")
+def test_cwa_skips_without_key():
+    cc = CWAFetcher(api_key=None).fetch_crosscheck(TARGET)
+    assert not cc.ok
+    assert "金鑰" in (cc.error or "")

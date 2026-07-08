@@ -23,6 +23,10 @@ const HOURLY_FIELDS = [
 
 const mean = (xs) => xs.reduce((s, v) => s + v, 0) / xs.length;
 
+// 多模式集成（與 Python ENSEMBLE_MODELS 一致）：主呼叫維持 best_match，
+// 集成僅用於不確定性量化；失敗靜默降級（modelSpread = null → 固定 ±10）。
+export const ENSEMBLE_MODELS = ["icon_seamless", "gfs_seamless"];
+
 function insufficient(dateStr, error) {
   return { targetDate: dateStr, source: "open-meteo", ok: false, error, fetchedAt: Date.now() };
 }
@@ -78,6 +82,45 @@ async function fetchOnce(url) {
   }
 }
 
+async function fetchEnsembleSpread(dateStr, lat, lon, base) {
+  const params = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    hourly: "cloud_cover_low,cloud_cover_mid,cloud_cover_high",
+    models: ENSEMBLE_MODELS.join(","),
+    timezone: "Asia/Taipei",
+    start_date: dateStr,
+    end_date: dateStr,
+  });
+  try {
+    const payload = await fetchOnce(`${OPEN_METEO_URL}?${params}`);
+    const hourly = payload.hourly;
+    const hourIndex = new Map();
+    hourly.time.forEach((t, i) => hourIndex.set(parseInt(t.slice(11, 13), 10), i));
+    const windowMean = (field, model) => {
+      const col = hourly[`${field}_${model}`];
+      const raw = WINDOW_HOURS.map((h) => col[hourIndex.get(h)]);
+      if (raw.some((v) => v === null || v === undefined)) throw new Error("缺值");
+      return mean(raw.map(Number));
+    };
+    const lows = [base.cloudLow ?? 0];
+    const midHighs = [Math.max(base.cloudMid ?? 0, base.cloudHigh ?? 0)];
+    for (const model of ENSEMBLE_MODELS) {
+      lows.push(windowMean("cloud_cover_low", model));
+      midHighs.push(
+        Math.max(windowMean("cloud_cover_mid", model), windowMean("cloud_cover_high", model)),
+      );
+    }
+    const spread = Math.max(
+      Math.max(...midHighs) - Math.min(...midHighs),
+      Math.max(...lows) - Math.min(...lows),
+    );
+    return { spread, models: ["best_match", ...ENSEMBLE_MODELS].join(",") };
+  } catch {
+    return { spread: null, models: "" };
+  }
+}
+
 /** 擷取單日評估窗口；失敗回傳 {ok:false, error}。 */
 export async function fetchWeather(dateStr, lat, lon) {
   const params = new URLSearchParams({
@@ -93,11 +136,14 @@ export async function fetchWeather(dateStr, lat, lon) {
   for (let attempt = 0; attempt <= RETRY_COUNT; attempt++) {
     try {
       const payload = await fetchOnce(url);
+      let window;
       try {
-        return parseOpenMeteo(dateStr, payload);
+        window = parseOpenMeteo(dateStr, payload);
       } catch (e) {
         return insufficient(dateStr, `Open-Meteo 回應解析失敗：${e.message}`);
       }
+      const { spread, models } = await fetchEnsembleSpread(dateStr, lat, lon, window);
+      return { ...window, modelSpread: spread, ensembleModels: models };
     } catch (e) {
       lastError = e.name === "AbortError" ? "timeout" : e.message;
     }
@@ -111,9 +157,12 @@ export function demoWeather(dateStr) {
   const seed = [...dateStr].reduce((s, c) => s + c.charCodeAt(0), 0);
   const variant = seed % 3;
   const presets = [
-    { cloudLow: 18, cloudMid: 35, cloudHigh: 52, precipProbEvening: 20, rainRecentFlag: true },
-    { cloudLow: 12, cloudMid: 10, cloudHigh: 22, precipProbEvening: 5, rainRecentFlag: false },
-    { cloudLow: 55, cloudMid: 45, cloudHigh: 30, precipProbEvening: 45, rainRecentFlag: false },
+    { cloudLow: 18, cloudMid: 35, cloudHigh: 52, precipProbEvening: 20, rainRecentFlag: true,
+      modelSpread: 8, ensembleModels: "best_match,icon_seamless,gfs_seamless" },
+    { cloudLow: 12, cloudMid: 10, cloudHigh: 22, precipProbEvening: 5, rainRecentFlag: false,
+      modelSpread: 30, ensembleModels: "best_match,icon_seamless,gfs_seamless" },
+    { cloudLow: 55, cloudMid: 45, cloudHigh: 30, precipProbEvening: 45, rainRecentFlag: false,
+      modelSpread: null, ensembleModels: "" },
   ];
   const p = presets[variant];
   return {

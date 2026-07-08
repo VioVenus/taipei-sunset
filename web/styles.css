@@ -80,6 +80,9 @@ main { padding: 12px; max-width: 560px; margin: 0 auto; }
 .summary-row { display: flex; gap: 16px; margin-top: 12px; }
 .summary-item { flex: 1; }
 .summary-label { font-size: 0.75rem; color: var(--muted); }
+.hw-tag { color: var(--warn); font-weight: 600; margin-left: 4px; }
+.action-row { margin-top: 12px; flex-wrap: wrap; }
+.action-row .btn, .check-link { font-size: 0.8125rem; text-decoration: none; display: inline-flex; align-items: center; }
 .summary-value { font-size: 1.25rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .range-bar { position: relative; height: 8px; border-radius: 4px; background: var(--border); margin-top: 6px; overflow: hidden; }
 .range-bar > i { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: 4px; }

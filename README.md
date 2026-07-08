@@ -37,9 +37,11 @@ src/sunset/
 └── cli.py          # python -m sunset <subcommand>
 ```
 
-資料來源：Open-Meteo 逐時預報（免費無金鑰；分層雲量 low/mid/high 是核心輸入）。
-CWA 開放資料為可選交叉驗證（Phase 0 為 stub，未設金鑰自動跳過）。
-**禁止爬天氣網頁 HTML**，設計原則見 [docs/lessons.md](docs/lessons.md)。
+資料來源與角色分級見 [docs/data-sources.md](docs/data-sources.md)：
+Open-Meteo best_match 為引擎輸入；ICON/GFS 多模式分歧驅動**動態不確定性區間**
+（±10 → 最寬 ±25）；CWA（設 `CWA_API_KEY` 後啟用）為交叉驗證；
+雷達/衛星/即時影像為出發前人眼確認。**禁止爬天氣網頁 HTML**，
+設計原則見 [docs/lessons.md](docs/lessons.md)。
 
 ## 本地執行
 
@@ -104,6 +106,7 @@ Repo → Settings → Secrets and variables → Actions → New repository secre
 | `NTFY_TOPIC` | ntfy 主題名（長隨機字串） | 與 Telegram 擇一 |
 | `TELEGRAM_BOT_TOKEN` | BotFather 給的 token | 與 ntfy 擇一 |
 | `TELEGRAM_CHAT_ID` | 你的 chat id | 同上 |
+| `CWA_API_KEY` | CWA 開放資料金鑰（opendata.cwa.gov.tw 免費註冊） | 選填：啟用交叉驗證 |
 
 Token **絕不落地 repo**（程式碼與日誌皆不含 secrets）。
 

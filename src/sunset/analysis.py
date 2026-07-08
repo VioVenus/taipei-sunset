@@ -13,8 +13,14 @@ from sunset.geometry import (
     assess_alignment,
     assess_obstruction,
 )
-from sunset.scoring import ScenarioProbs, ScoringInput, score
-from sunset.weather import WeatherFetcher, WeatherWindow
+from sunset.scoring import (
+    PROB_INTERVAL_HALF_WIDTH,
+    ScenarioProbs,
+    ScoringInput,
+    dynamic_half_width,
+    score,
+)
+from sunset.weather import CWACrossCheck, WeatherFetcher, WeatherWindow
 
 # 判定門檻（常數化，日後校準）
 VERDICT_GO_CD_MIN = 25.0  # C+D（火燒雲等級）點估 ≥ 25 → 出發
@@ -54,6 +60,9 @@ class AnalysisResult:
     verdict: str
     preliminary: bool  # 初步展望（信心低，以當日 16:20 推播為準）
     generated_at_utc: datetime
+    # 動態不確定性區間半寬（多模式分歧大 → 加寬；無集成資料 → 基準 ±10）
+    interval_half_width: float = PROB_INTERVAL_HALF_WIDTH
+    cross_check: CWACrossCheck | None = None  # CWA 交叉驗證（顯示層，不進引擎）
 
 
 def analyze(
@@ -64,6 +73,7 @@ def analyze(
     burned_yesterday: bool = False,
     front_within_48h: bool = False,
     now_utc: datetime | None = None,
+    cross_check: CWACrossCheck | None = None,
 ) -> AnalysisResult:
     """組裝單一 date × viewpoint 的完整分析。
 
@@ -127,6 +137,8 @@ def analyze(
         verdict=verdict,
         preliminary=preliminary,
         generated_at_utc=now,
+        interval_half_width=dynamic_half_width(weather.model_spread),
+        cross_check=cross_check,
     )
 
 

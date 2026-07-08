@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sunset import solar  # noqa: E402
 from sunset.geometry import bearing_deg, distance_km  # noqa: E402
-from sunset.scoring import ScoringInput, score  # noqa: E402
+from sunset.scoring import ScoringInput, dynamic_half_width, score  # noqa: E402
 
 JIANTAN = (25.0904311, 121.5367826)
 DADAOCHENG = (25.0565135, 121.5075150)
@@ -87,13 +87,19 @@ def scoring_fixtures() -> list[dict]:
     return rows
 
 
+def interval_fixtures() -> list[dict]:
+    cases = [None, 0.0, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 80.0]
+    return [{"spread": c, "half_width": dynamic_half_width(c)} for c in cases]
+
+
 def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     fixtures = {
-        "engine_version": "v1.0.0",
+        "engine_version": "v1.1.0",
         "solar": solar_fixtures(),
         "geometry": geometry_fixtures(),
         "scoring": scoring_fixtures(),
+        "interval": interval_fixtures(),
     }
     OUT.write_text(json.dumps(fixtures, ensure_ascii=False), encoding="utf-8")
     print(f"wrote {OUT} ({len(fixtures['scoring'])} scoring cases)")

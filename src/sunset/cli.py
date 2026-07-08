@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,7 +23,7 @@ from sunset import analysis as analysis_mod
 from sunset import logbook, notify, review, telegram_io
 from sunset.geometry import load_viewpoints
 from sunset.solar import TAIPEI_TZ
-from sunset.weather import OpenMeteoFetcher
+from sunset.weather import CWAFetcher, OpenMeteoFetcher
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -70,9 +71,17 @@ def _analyze_all(
     viewpoints = load_viewpoints(args.viewpoints_file)
     fetcher = OpenMeteoFetcher()
     burned = logbook.burned_on(target_date - timedelta(days=1), args.logs_dir)
+    # CWA 交叉驗證（設 CWA_API_KEY 才啟用；一日取一次，全點位共用）
+    cwa = CWAFetcher(os.environ.get("CWA_API_KEY")).fetch_crosscheck(target_date)
+    cross_check = cwa if cwa.ok else None
     return [
         analysis_mod.analyze(
-            target_date, vp, fetcher, burned_yesterday=burned, front_within_48h=front
+            target_date,
+            vp,
+            fetcher,
+            burned_yesterday=burned,
+            front_within_48h=front,
+            cross_check=cross_check,
         )
         for vp in viewpoints.values()
     ]

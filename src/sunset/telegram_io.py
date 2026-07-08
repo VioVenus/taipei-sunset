@@ -32,8 +32,11 @@ def _date_label(d: date) -> str:
     return f"{d.month}/{d.day}（{WEEKDAY_ZH[d.weekday()]}）"
 
 
-def _interval_str(point: float) -> str:
-    lo, hi = prob_interval(point)
+CWA_RADAR_URL = "https://www.cwa.gov.tw/V8/C/W/OBS_Radar.html"
+
+
+def _interval_str(point: float, half_width: float | None = None) -> str:
+    lo, hi = prob_interval(point, half_width)
     return f"{lo}–{hi}%"
 
 
@@ -71,14 +74,28 @@ def format_analysis(result: AnalysisResult) -> str:
         lines.append("暫無法評分，請稍後重試或以現場目視為準。")
     else:
         p = result.probs
+        hw = result.interval_half_width
         lines.append(
-            f"看得到日落：{_interval_str(p.sunset_visible)}｜火燒雲：{_interval_str(p.burn_level)}"
+            f"看得到日落：{_interval_str(p.sunset_visible, hw)}｜"
+            f"火燒雲：{_interval_str(p.burn_level, hw)}"
         )
         lines.append(
             f"情境：A擋光 {p.a:.0f}% / B普通 {p.b:.0f}% / C局部燒 {p.c:.0f}% / D全面燒 {p.d:.0f}%"
         )
         lines.append("理由：")
         lines.extend(f"・{reason}" for reason in p.reasons)
+        if hw > 10.0 and result.weather.model_spread is not None:
+            lines.append(
+                f"・多模式雲量分歧 {result.weather.model_spread:.0f}%"
+                f"（{result.weather.ensemble_models}）→ 區間加寬至 ±{hw:.0f}"
+            )
+    cc = result.cross_check
+    if cc is not None and cc.ok:
+        line = f"CWA 交叉驗證（臺北市 {cc.period_label}）：{cc.wx_text}，降雨機率 {cc.pop_percent:.0f}%"
+        om_pop = result.weather.precip_prob_evening
+        if om_pop is not None and abs(cc.pop_percent - om_pop) > 30.0:
+            line += f"\n⚠️ 與 Open-Meteo（{om_pop:.0f}%）分歧大，今晚不確定性高"
+        lines.append(line)
     if result.viewpoint.weather_exclusion:
         lines.append(f"⚠️ {result.viewpoint.weather_exclusion}")
     if result.preliminary:
@@ -92,12 +109,13 @@ def format_daily_push(recommended: AnalysisResult, all_results: list[AnalysisRes
     others = [r for r in all_results if r.viewpoint.id != recommended.viewpoint.id and r.probs]
     if others:
         extra = "、".join(
-            f"{r.viewpoint.name} 火燒雲 {_interval_str(r.probs.burn_level)}"  # type: ignore[union-attr]
+            f"{r.viewpoint.name} 火燒雲 {_interval_str(r.probs.burn_level, r.interval_half_width)}"  # type: ignore[union-attr]
             for r in others
         )
         text += f"\n其他點位：{extra}"
     blue_hour = _hhmm(recommended.sun.civil_twilight_end_local - timedelta(minutes=9))
     text += f"\n⚠️ 對流殘留請開雷達確認後再上山；看到 {blue_hour} 再走"
+    text += f"\n🌩 雷達回波：{CWA_RADAR_URL}"
     return text
 
 

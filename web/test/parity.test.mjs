@@ -13,7 +13,7 @@ import {
   civilTwilightEndMs,
 } from "../js/solar.js";
 import { bearingDeg, distanceKm } from "../js/geometry.js";
-import { score, ENGINE_VERSION } from "../js/scoring.js";
+import { score, ENGINE_VERSION, dynamicHalfWidth } from "../js/scoring.js";
 
 const fixtures = JSON.parse(
   readFileSync(join(dirname(fileURLToPath(import.meta.url)), "fixtures.json"), "utf-8"),
@@ -43,6 +43,13 @@ test("geometry parity: bearing within 0.01°, distance within 1m", () => {
   for (const f of fixtures.geometry) {
     assert.ok(Math.abs(bearingDeg(...f.from, ...f.to) - f.bearing) < 0.01, `${f.name} bearing`);
     assert.ok(Math.abs(distanceKm(...f.from, ...f.to) - f.distance_km) < 0.001, `${f.name} dist`);
+  }
+});
+
+test("interval parity: dynamic half width", () => {
+  for (const f of fixtures.interval) {
+    const got = dynamicHalfWidth(f.spread);
+    assert.ok(Math.abs(got - f.half_width) < 1e-9, `spread=${f.spread} got=${got} want=${f.half_width}`);
   }
 });
 

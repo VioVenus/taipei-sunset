@@ -1,6 +1,6 @@
 // Service Worker：app shell cache-first；天氣/日誌 API 一律 network-only
 // （過期預報比沒有預報危險——降級邏輯在 app 層用 localStorage 處理並明確標 stale）。
-const CACHE = "sunset-shell-v3";
+const CACHE = "sunset-shell-v4";
 const SHELL = [
   "./",
   "index.html",
@@ -17,6 +17,7 @@ const SHELL = [
   "js/logs.js",
   "js/github.js",
   "data/viewpoints.json",
+  "data/cams.json",
   "icons/icon-192.png",
   "icons/icon-512.png",
 ];

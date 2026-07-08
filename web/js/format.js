@@ -18,9 +18,9 @@ export function dateLabel(dateStr) {
   return `${m}/${d}（${WEEKDAY_ZH[wd]}）`;
 }
 
-/** 點估 → "30–50%" */
-export function intervalStr(point) {
-  const [lo, hi] = probInterval(point);
+/** 點估 → "30–50%"（half width 可依模式分歧加寬） */
+export function intervalStr(point, halfWidth) {
+  const [lo, hi] = probInterval(point, halfWidth);
   return `${lo}–${hi}%`;
 }
 

@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-ENGINE_VERSION = "v1.0.0"
+# v1.1.0：新增動態不確定性區間（多模式分歧 → 區間加寬）。
+# 四情境機率分配規則與 v1.0.0 完全相同——分歧只加寬區間，不改點估。
+ENGINE_VERSION = "v1.1.0"
 
 # ── 基礎分配 ──────────────────────────────────────────────
 LOW_CLEAR_MAX = 30.0  # low < 30 視為地平線有縫
@@ -42,8 +44,23 @@ BONUS_DAILY_CAP = 25.0  # 單日加成上限
 ANTI_PESSIMISM_HIGH_MIN = 20.0  # cloud_high ≥ 20 時生效
 ANTI_PESSIMISM_CD_FLOOR = 15.0  # C+D 合計不得低於 15%
 
-# ── 輸出格式 ──────────────────────────────────────────────
-PROB_INTERVAL_HALF_WIDTH = 10.0  # 點估 ±10 個百分點，夾在 [0,100]
+# ── 輸出格式：動態不確定性區間 ────────────────────────────
+# 基準 ±10；多模式雲量分歧越大，區間越寬（誠實反映預報不確定性），上限 ±25。
+# half_width = clamp(10 + 0.5 × model_spread 超出門檻部分, 10, 25)
+PROB_INTERVAL_HALF_WIDTH = 10.0  # 基準半寬（無集成資料時的固定值）
+PROB_INTERVAL_MAX_HALF_WIDTH = 25.0
+INTERVAL_SPREAD_THRESHOLD = 10.0  # 分歧 ≤10% 視為正常雜訊，不加寬
+INTERVAL_SPREAD_FACTOR = 0.5
+
+
+def dynamic_half_width(model_spread: float | None) -> float:
+    """多模式分歧 → 區間半寬。None（無集成資料）→ 基準 ±10。"""
+    if model_spread is None:
+        return PROB_INTERVAL_HALF_WIDTH
+    widened = PROB_INTERVAL_HALF_WIDTH + INTERVAL_SPREAD_FACTOR * max(
+        0.0, model_spread - INTERVAL_SPREAD_THRESHOLD
+    )
+    return min(PROB_INTERVAL_MAX_HALF_WIDTH, max(PROB_INTERVAL_HALF_WIDTH, widened))
 
 
 @dataclass(frozen=True)
@@ -81,10 +98,11 @@ class ScenarioProbs:
         return self.c + self.d
 
 
-def prob_interval(point: float) -> tuple[int, int]:
-    """點估 → 區間（±10 個百分點，夾在 [0,100]）。禁止輸出單點假精確。"""
-    lo = max(0.0, point - PROB_INTERVAL_HALF_WIDTH)
-    hi = min(100.0, point + PROB_INTERVAL_HALF_WIDTH)
+def prob_interval(point: float, half_width: float | None = None) -> tuple[int, int]:
+    """點估 → 區間（±half_width，夾在 [0,100]）。禁止輸出單點假精確。"""
+    hw = PROB_INTERVAL_HALF_WIDTH if half_width is None else half_width
+    lo = max(0.0, point - hw)
+    hi = min(100.0, point + hw)
     return round(lo), round(hi)
 
 

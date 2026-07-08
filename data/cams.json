@@ -1,0 +1,23 @@
+{
+  "_note": "出發前確認連結（人工維護）。cams 的 verified=false 表示連結尚未由維護者實地驗證；提案新影像請開 feedback issue。禁止爬取這些頁面——僅供人眼確認。",
+  "links": [
+    { "name": "🌩 CWA 雷達回波", "url": "https://www.cwa.gov.tw/V8/C/W/OBS_Radar.html" },
+    { "name": "🛰 CWA 衛星雲圖", "url": "https://www.cwa.gov.tw/V8/C/W/OBS_Sat.html" }
+  ],
+  "cams": [
+    {
+      "name": "陽明山國家公園即時影像",
+      "url": "https://www.ymsnp.gov.tw/",
+      "looks": "台北盆地北側高處（首頁→即時影像）",
+      "viewpoint_id": "",
+      "verified": false
+    },
+    {
+      "name": "CWA 即時影像總覽",
+      "url": "https://www.cwa.gov.tw/V8/C/W/OBS_Img.html",
+      "looks": "全台觀測站即時影像索引",
+      "viewpoint_id": "",
+      "verified": false
+    }
+  ]
+}

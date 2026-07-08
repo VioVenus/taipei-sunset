@@ -34,6 +34,7 @@ const state = {
   lastFetchMs: null,
   weatherStale: false,
   weatherByDate: new Map(), // dateStr → WeatherWindow（工作階段快取）
+  cams: null, // data/cams.json（出發前確認連結，人工維護）
 };
 
 // ── 資料載入 ─────────────────────────────────────────────
@@ -163,8 +164,8 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function rangeBarHtml(point) {
-  const [lo, hi] = probInterval(point);
+function rangeBarHtml(point, halfWidth) {
+  const [lo, hi] = probInterval(point, halfWidth);
   return `<div class="range-bar" role="img" aria-label="區間 ${lo} 至 ${hi}%">
     <i style="left:${lo}%;width:${hi - lo}%"></i></div>`;
 }
@@ -185,6 +186,7 @@ function renderForecast() {
   card.classList.toggle("preliminary", main.preliminary);
 
   const p = main.probs;
+  const hw = main.intervalHalfWidth ?? 10;
   const vClass = main.verdict === VERDICT_GO ? "go" : main.verdict === VERDICT_NO_DATA ? "nodata" : "skip";
   card.innerHTML = `
     <div class="verdict-head">
@@ -196,21 +198,38 @@ function renderForecast() {
     ${p ? `
     <div class="summary-row">
       <div class="summary-item">
-        <div class="summary-label">火燒雲（C+D）</div>
-        <div class="summary-value">${intervalStr(p.burnLevel)}</div>
-        ${rangeBarHtml(p.burnLevel)}
+        <div class="summary-label">火燒雲（C+D）${hw > 10 ? `<span class="hw-tag">±${hw.toFixed(0)}</span>` : ""}</div>
+        <div class="summary-value">${intervalStr(p.burnLevel, hw)}</div>
+        ${rangeBarHtml(p.burnLevel, hw)}
       </div>
       <div class="summary-item">
         <div class="summary-label">看得到日落（B+C+D）</div>
-        <div class="summary-value">${intervalStr(p.sunsetVisible)}</div>
-        ${rangeBarHtml(p.sunsetVisible)}
+        <div class="summary-value">${intervalStr(p.sunsetVisible, hw)}</div>
+        ${rangeBarHtml(p.sunsetVisible, hw)}
       </div>
     </div>` : `
     <div class="row"><button class="btn" id="retry-btn">重試</button></div>
     <p class="footnote" style="margin-top:8px">${esc(main.weather?.error || "取得失敗")}</p>`}
     ${main.viewpoint.weather_exclusion ? `<p class="footnote" style="margin-top:10px">⚠️ ${esc(main.viewpoint.weather_exclusion)}</p>` : ""}
+    <div class="row action-row">
+      <a class="btn ghost" target="_blank" rel="noopener"
+         href="https://www.google.com/maps/search/?api=1&query=${main.viewpoint.lat},${main.viewpoint.lon}">🧭 導航到${esc(main.viewpoint.name)}</a>
+      <button class="btn ghost" id="share-btn">📤 分享判定</button>
+    </div>
   `;
   card.querySelector("#retry-btn")?.addEventListener("click", () => runAnalysis({ fresh: true }));
+  card.querySelector("#share-btn")?.addEventListener("click", async () => {
+    const text = `${dateLabel(dateStr)} 台北日落判定：${main.verdict}・${main.viewpoint.name}\n` +
+      (p ? `火燒雲 ${intervalStr(p.burnLevel, hw)}｜日落 ${hhmm(main.sun.sunsetMs)}\n` : "") +
+      location.href;
+    try {
+      if (navigator.share) await navigator.share({ text });
+      else {
+        await navigator.clipboard.writeText(text);
+        $("data-footnote").textContent = "已複製到剪貼簿";
+      }
+    } catch { /* 使用者取消 */ }
+  });
 
   // 時間軸 + 羅盤（太陽幾何永遠可用）
   const s = main.sun;
@@ -249,10 +268,10 @@ function renderForecast() {
         ${seg("sa", p.a, "A")}${seg("sb", p.b, "B")}${seg("sc", p.c, "C")}${seg("sd", p.d, "D")}
       </div>
       <div class="scenario-legend">
-        <span><i class="dot sa"></i>A 擋光 ${intervalStr(p.a)}</span>
-        <span><i class="dot sb"></i>B 普通 ${intervalStr(p.b)}</span>
-        <span><i class="dot sc"></i>C 局部燒 ${intervalStr(p.c)}</span>
-        <span><i class="dot sd"></i>D 全面燒 ${intervalStr(p.d)}</span>
+        <span><i class="dot sa"></i>A 擋光 ${intervalStr(p.a, hw)}</span>
+        <span><i class="dot sb"></i>B 普通 ${intervalStr(p.b, hw)}</span>
+        <span><i class="dot sc"></i>C 局部燒 ${intervalStr(p.c, hw)}</span>
+        <span><i class="dot sd"></i>D 全面燒 ${intervalStr(p.d, hw)}</span>
       </div>
       <details class="help">
         <summary>什麼是 A／B／C／D？</summary>
@@ -264,8 +283,12 @@ function renderForecast() {
         </ul>
         <p class="muted">機率一律顯示 ±10 百分點區間——預測本來就有不確定性，單點數字是假精確。</p>
       </details>`;
+    const spreadNote =
+      main.weather?.modelSpread !== null && main.weather?.modelSpread !== undefined && hw > 10
+        ? `<li>多模式雲量分歧 ${main.weather.modelSpread.toFixed(0)}%（${esc(main.weather.ensembleModels)}）→ 區間加寬至 ±${hw.toFixed(0)}</li>`
+        : "";
     $("reasons-card").innerHTML = `<h2>理由</h2>
-      <ul class="reasons">${p.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>`;
+      <ul class="reasons">${p.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}${spreadNote}</ul>`;
     $("scenario-card").classList.remove("hidden");
     $("reasons-card").classList.remove("hidden");
   } else {
@@ -278,7 +301,7 @@ function renderForecast() {
   $("others-card").innerHTML = `<h2>其他點位</h2>` + others.map((r) => `
     <button class="other-vp" data-vp="${esc(r.viewpoint.id)}" aria-expanded="${state.expandedVp === r.viewpoint.id}">
       <span>${esc(r.viewpoint.name)}<br><span class="muted small">${esc(r.viewpoint.access || "")}</span></span>
-      <span>${r.probs ? `火燒雲 ${intervalStr(r.probs.burnLevel)}` : "資料不足"}・${esc(r.verdict)}</span>
+      <span>${r.probs ? `火燒雲 ${intervalStr(r.probs.burnLevel, r.intervalHalfWidth)}` : "資料不足"}・${esc(r.verdict)}</span>
     </button>
     ${state.expandedVp === r.viewpoint.id && r.probs ? `
       <ul class="reasons small" style="padding:0 0 10px">
@@ -294,9 +317,39 @@ function renderForecast() {
     }),
   );
 
+  renderChecklist(main);
+
   $("data-footnote").textContent = p
     ? `資料：${main.weather.source}・${hhmm(state.lastFetchMs)} 取得｜評分引擎 ${p.engineVersion}${DEMO ? "｜⚠️ DEMO 模式（擬真資料）" : ""}`
     : "";
+}
+
+// ── 出發前 60 秒確認（雷達/衛星/即時影像，人工維護清單）──
+async function renderChecklist(main) {
+  const card = $("checklist-card");
+  if (!card) return;
+  if (!state.cams) {
+    try {
+      state.cams = await (await fetch("data/cams.json")).json();
+    } catch {
+      state.cams = { links: [], cams: [] };
+    }
+  }
+  const links = (state.cams.links || [])
+    .map((l) => `<a class="btn ghost check-link" target="_blank" rel="noopener" href="${l.url}">${esc(l.name)}</a>`)
+    .join("");
+  const cams = (state.cams.cams || [])
+    .filter((c) => !c.viewpoint_id || c.viewpoint_id === main.viewpoint.id)
+    .map((c) => `<a class="btn ghost check-link" target="_blank" rel="noopener" href="${c.url}">📷 ${esc(c.name)}${c.verified === false ? "（連結待驗證）" : ""}</a>`)
+    .join("");
+  card.innerHTML = `
+    <h2>出發前 60 秒確認</h2>
+    <p class="muted small">預測給機率，眼睛做最後確認——這一步取代「16:30 抬頭看西天」。</p>
+    <ol class="reasons small">
+      <li>雷達：有無回波正在移入台北盆地（對流殘留）</li>
+      <li>衛星/即時影像：西邊天空低雲是否比預報厚</li>
+    </ol>
+    <div class="row" style="flex-wrap:wrap">${links}${cams}</div>`;
 }
 
 // ── 三日概覽條（點擊切換日期）────────────────────────────
@@ -316,7 +369,7 @@ async function renderDayStrip() {
     <button class="day-chip ${state.offset === off ? "active" : ""}" data-offset="${off}"
             aria-pressed="${state.offset === off}">
       <span class="d-label">${labels[off]} ${dateStr.slice(5).replace("-", "/")}</span>
-      <span class="d-value">${best?.probs ? `🔥 ${intervalStr(best.probs.burnLevel)}` : "—"}</span>
+      <span class="d-value">${best?.probs ? `🔥 ${intervalStr(best.probs.burnLevel, best.intervalHalfWidth)}` : "—"}</span>
       <span class="d-verdict ${best?.verdict === VERDICT_GO ? "go" : "skip"}">${best ? esc(best.verdict) : "資料不足"}</span>
     </button>`).join("");
   strip.querySelectorAll(".day-chip").forEach((btn) =>
