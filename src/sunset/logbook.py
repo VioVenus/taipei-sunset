@@ -14,7 +14,9 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-DEFAULT_LOGS_DIR = Path(__file__).resolve().parents[2] / "data" / "logs"
+from sunset.paths import data_dir
+
+DEFAULT_LOGS_DIR = data_dir() / "logs"
 PREDICTIONS_FILENAME = "predictions.csv"
 OUTCOMES_FILENAME = "outcomes.csv"
 

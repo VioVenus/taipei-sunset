@@ -11,6 +11,7 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from sunset.paths import data_dir
 from sunset.solar import SUN_DESCENT_DEG_PER_MIN
 
 EARTH_RADIUS_KM = 6371.0088
@@ -19,7 +20,7 @@ EARTH_RADIUS_KM = 6371.0088
 ALIGNMENT_GOOD_MAX_DIFF_DEG = 25.0
 ALIGNMENT_WARN_MIN_DIFF_DEG = 45.0
 
-DEFAULT_VIEWPOINTS_PATH = Path(__file__).resolve().parents[2] / "data" / "viewpoints.json"
+DEFAULT_VIEWPOINTS_PATH = data_dir() / "viewpoints.json"
 
 
 @dataclass(frozen=True)
