@@ -165,7 +165,9 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
 def _cmd_push_daily(args: argparse.Namespace) -> int:
     today = datetime.now(TAIPEI_TZ).date()
     results = _analyze_all(args, today, args.front)
-    recommended = analysis_mod.recommend(results)
+    # 每日廣播頭條只用『已實地驗證』點位（幾何可信）；草稿點仍出現在各區摘要與 app。
+    verified = [r for r in results if not r.viewpoint.needs_field_verification]
+    recommended = analysis_mod.recommend(verified) or analysis_mod.recommend(results)
     if recommended is None:
         text = f"❓ {today.isoformat()} 日落判定：資料不足（天氣 API 失敗），請以現場目視為準。"
     else:

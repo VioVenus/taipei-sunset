@@ -103,19 +103,32 @@ def format_analysis(result: AnalysisResult) -> str:
     return "\n".join(lines)
 
 
+REGION_ORDER = ("北", "中", "南", "東", "離島")
+
+
 def format_daily_push(recommended: AnalysisResult, all_results: list[AnalysisResult]) -> str:
-    """每日 16:20 推播訊息（含推薦點位）。"""
+    """每日 16:20 推播訊息：頭條推薦點位 + 全台各區最佳摘要。
+
+    全台化後點位數多，用『各區最佳一行』取代把所有點位塞成一長串，
+    讓不同地區的讀者都能一眼看到自己區域的最佳點（草稿座標點標 ⚠）。
+    """
     text = format_analysis(recommended)
-    others = [r for r in all_results if r.viewpoint.id != recommended.viewpoint.id and r.probs]
-    if others:
-        extra = "、".join(
-            f"{r.viewpoint.name} 火燒雲 {_interval_str(r.probs.burn_level, r.interval_half_width)}"  # type: ignore[union-attr]
-            for r in others
-        )
-        text += f"\n其他點位：{extra}"
+    scored = [r for r in all_results if r.probs]
+    lines = []
+    for region in REGION_ORDER:
+        region_rs = [r for r in scored if r.viewpoint.region == region]
+        if not region_rs:
+            continue
+        best = max(region_rs, key=lambda r: r.probs.burn_level)  # type: ignore[union-attr]
+        draft = " ⚠草稿座標" if best.viewpoint.needs_field_verification else ""
+        interval = _interval_str(best.probs.burn_level, best.interval_half_width)  # type: ignore[union-attr]
+        lines.append(f"　{region}｜{best.viewpoint.name} 火燒雲 {interval}{draft}")
+    if lines:
+        text += "\n\n全台各區最佳：\n" + "\n".join(lines)
     blue_hour = _hhmm(recommended.sun.civil_twilight_end_local - timedelta(minutes=9))
-    text += f"\n⚠️ 對流殘留請開雷達確認後再上山；看到 {blue_hour} 再走"
+    text += f"\n\n⚠️ 對流殘留請開雷達確認後再上山；看到 {blue_hour} 再走"
     text += f"\n🌩 雷達回波：{CWA_RADAR_URL}"
+    text += "\n📱 其他點位與出發前即時影像見 app"
     return text
 
 

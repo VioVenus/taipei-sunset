@@ -151,6 +151,22 @@ def test_format_daily_push_mentions_other_viewpoints():
     assert "其他點位" in text
 
 
+def test_daily_push_region_summary_and_draft_marker():
+    """全台化推播：各區最佳摘要，草稿點標 ⚠草稿座標；頭條只用已驗證點。"""
+    results = [
+        analyze(TARGET, vp, _StubFetcher(_window()), now_utc=AFTERNOON)
+        for vp in VIEWPOINTS.values()
+    ]
+    verified = [r for r in results if not r.viewpoint.needs_field_verification]
+    headline = recommend(verified) or recommend(results)
+    assert headline is not None and not headline.viewpoint.needs_field_verification
+    text = telegram_io.format_daily_push(headline, results)
+    assert "全台各區最佳" in text
+    for region in ("北", "中", "南", "東", "離島"):
+        assert f"　{region}｜" in text
+    assert "⚠草稿座標" in text  # 至少一個草稿點被標記
+
+
 def test_parse_date_arg():
     today = date(2026, 7, 4)
     assert telegram_io.parse_date_arg("今天", today) == today

@@ -17,11 +17,11 @@
 
 | 來源 | 內容 | 角色 | 接入方式 |
 |---|---|---|---|
-| **Open-Meteo best_match** | 逐時分層雲量/能見度/降雨 | 引擎輸入 | 免金鑰；Actions + PWA 客戶端直打（CC BY 4.0） |
+| **Open-Meteo best_match** | 逐時分層雲量/能見度/降雨 | 引擎輸入 | 免金鑰；Actions + PWA 客戶端直打（CC BY 4.0）。評估窗口**以當日該點實際日落時刻為中心**動態決定（v1.2.0），跨全台緯度與四季更準 |
 | **Open-Meteo 多模式**（ICON、GFS） | 同上雲量三層 | 不確定性量化：跨模式分歧 → 區間 ±10→±25 動態加寬 | 同一 API `models=` 參數，第二次輕量呼叫，失敗靜默退回 ±10 |
-| **CWA F-C0032-001**（36h 天氣預報） | 臺北市天氣現象 + 降雨機率 | 交叉驗證：並列顯示；PoP 與 Open-Meteo 差 >30 → 警示「不確定性高」 | 需免費金鑰 `CWA_API_KEY`（opendata.cwa.gov.tw 註冊）；只在 Actions 端（金鑰不進公開 PWA） |
+| **CWA F-C0032-001**（36h 天氣預報） | **全台 22 縣市**天氣現象 + 降雨機率 | 交叉驗證：並列顯示；PoP 與 Open-Meteo 差 >30 → 警示「不確定性高」 | 需免費金鑰 `CWA_API_KEY`（opendata.cwa.gov.tw 註冊）；按各點位 `city` 查、同縣市快取共用，一把金鑰服務全台；只在 Actions 端（金鑰不進公開 PWA） |
 | **CWA 雷達回波 / 衛星雲圖**（V8 頁面） | 即時對流位置 / 雲系 | 人眼確認 | 連結（app「出發前確認」卡 + 推播訊息），**禁止爬取** |
-| **即時影像**（data/cams.json） | 西天實況 | 人眼確認：遠端替代「抬頭看西天」 | 人工維護連結清單，`verified` 標記；提案走 feedback issue |
+| **即時影像**（data/cams.json） | 西天實況（YouTube 直播/頁面） | 人眼確認：遠端替代「抬頭看西天」 | 人工維護清單，`verified` 標記；YouTube 以 lite-facade 內嵌（點縮圖才載 `youtube-nocookie` iframe，離線不崩、隱私友善），可填 `channel_id` 用頻道直播較穩；**禁止爬取**，提案走 feedback issue |
 | **群眾回報**（reports.csv） | 實際結果 A–D | 校準標籤 + 持續性加成 | Issue Form 自動 ingest，多數決共識 |
 
 ## 評估過、暫不接入（附理由，避免重複評估）

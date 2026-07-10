@@ -1,11 +1,12 @@
 # taipei-sunset 🌇
 
-台北日落／火燒雲（burning cloud）自動預測系統 — Phase 0。
+台灣日落／火燒雲（burning cloud）自動預測系統（repo 名 `taipei-sunset` 沿用，涵蓋已擴及全台）。
 
 把「16:30 抬頭看西天」的人工決策規則自動化：
 
-- **每日 16:20（台北時間）** 自動推播 Telegram：今晚日落判定（出發／跳過、推薦點位、四情境機率區間、理由）。
-- **隨時查詢**：任意日期（今天～未來 3 天）× 任意已建檔點位的完整分析。
+- **每日 16:20（台北時間）** 自動推播 Telegram：今晚日落判定（出發／跳過、推薦點位、四情境機率區間、理由）＋**全台各區最佳**摘要。
+- **隨時查詢**：任意日期（今天～未來 3 天）× 全台已建檔點位；PWA 依**地區分頁**或**定位找最近**選點。
+- **更精準**：評估窗口以當日該點**實際日落時刻**為中心（跨全台緯度與四季）；多模式分歧動態加寬機率區間；CWA 全台縣市交叉驗證。
 - **每次預測寫入日誌**（point-in-time、append-only），為後續校準與模型迭代累積資料。
 
 四情境：**A** 低雲／降雨全擋、**B** 普通橘色夕陽、**C** 局部火燒雲、**D** 全面火燒雲。
@@ -38,10 +39,11 @@ src/sunset/
 ```
 
 資料來源與角色分級見 [docs/data-sources.md](docs/data-sources.md)：
-Open-Meteo best_match 為引擎輸入；ICON/GFS 多模式分歧驅動**動態不確定性區間**
-（±10 → 最寬 ±25）；CWA（設 `CWA_API_KEY` 後啟用）為交叉驗證；
-雷達/衛星/即時影像為出發前人眼確認。**禁止爬天氣網頁 HTML**，
-設計原則見 [docs/lessons.md](docs/lessons.md)。
+Open-Meteo best_match 為引擎輸入（評估窗口以實際日落時刻為中心，v1.2.0）；
+ICON/GFS 多模式分歧驅動**動態不確定性區間**（±10 → 最寬 ±25）；
+CWA（設 `CWA_API_KEY` 後啟用）為**全台縣市**交叉驗證；
+雷達/衛星/即時影像（YouTube 直播 lite-facade 內嵌）為出發前人眼確認。
+**禁止爬天氣網頁 HTML**，設計原則見 [docs/lessons.md](docs/lessons.md)。
 
 ## 本地執行
 
@@ -145,11 +147,13 @@ Actions → 選 `on-demand-forecast`（或 `on-demand-report`）→ Run workflow
 - **部署**：merge 到 main 後由 `pages.yml` 自動發佈到 GitHub Pages
   （repo Settings → Pages → Source 選「GitHub Actions」啟用一次即可）。
 - **安裝**：手機開啟 Pages 網址 → Android「安裝應用程式」／iOS「加入主畫面」。
-- **功能**：日期（今天～+3 天）× 點位查詢、判定卡、太陽時間軸、四情境機率條、
-  一鍵回報 A/B/C/D（設定 fine-grained token 後直接觸發 `on-demand-report`）、
-  本週統計與歷史紀錄。
+- **功能**：**地區分頁（北/中/南/東/離島）＋定位找最近**選點、日期（今天～+3 天）查詢、
+  判定卡（含縣市與草稿點標示）、太陽時間軸、四情境機率條、**出發前即時影像**
+  （YouTube 直播點縮圖才載入）、一鍵回報 A/B/C/D（設定 fine-grained token 後直接觸發
+  `on-demand-report`）、本週統計與歷史紀錄。
 - **紀律**：太陽幾何本地計算（離線可用）；機率一律區間；初步展望明確標註；
-  API 失敗降級不崩潰。推播仍走 ntfy/Telegram（iOS Web Push 不可靠，不做）。
+  草稿座標點明確標「待實地確認」；API 失敗降級不崩潰。
+  推播仍走 ntfy/Telegram（iOS Web Push 不可靠，不做）。
 - **雙實作防漂移**：評分引擎以 Python 為 canonical；
   `scripts/gen_parity_fixtures.py` 產生 fixtures，CI 跑
   `node --test web/test/parity.test.mjs` 比對 JS 移植版（solar/geometry/scoring）。
@@ -159,6 +163,10 @@ Actions → 選 `on-demand-forecast`（或 `on-demand-report`）→ Run workflow
 ## Roadmap
 
 - **Phase 0**：規則引擎 v1、Open-Meteo、推播、日誌。
-- **Phase 1（本版）**：PWA、週報、on-demand、ntfy。後續：CWA 交叉驗證、更多點位。
+- **Phase 1**：PWA、週報、on-demand、ntfy。
+- **v1.1.0**：多模式動態不確定性區間、CWA 交叉驗證、出發前人眼確認連結。
+- **v1.2.0（本版）**：**全台化**——地區/縣市資料模型、動態日落窗口（跨全台與四季更準）、
+  CWA 全台縣市交叉驗證、地區分頁＋定位找最近、即時影像 lite-facade 內嵌。
+  草稿點位陸續實地確認座標與遮蔽後轉為已驗證。
 - Phase 2：以累積 ≥60 天的日誌做校準與調參（門檻 60 天，樣本不足不調參）。
 - Phase 3：衛星雲圖／雷達整合。
