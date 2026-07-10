@@ -103,8 +103,15 @@ async function runAnalysis({ fresh = false } = {}) {
   const weathers = await Promise.all(active.map((vp) => getWeather(dateStr, vp, { fresh })));
   state.results = active.map((vp, i) => analyze(dateStr, vp, weathers[i], nowMs()));
   state.recommended = recommend(state.results);
+  // 未選點或選點不在本區 → 預設為本區最佳（推薦），而非任意第一點
+  const activeIds = new Set(active.map((v) => v.id));
+  if (!state.selectedVpId || !activeIds.has(state.selectedVpId)) {
+    state.selectedVpId = state.recommended?.viewpoint.id ?? active[0]?.id ?? null;
+    persistSelection();
+  }
   state.weatherStale = weathers.some((w) => w._stale);
   state.lastFetchMs = Math.max(0, ...weathers.map((w) => w.fetchedAt ?? 0)) || Date.now();
+  renderRegionBar(); // 重繪以標示「本區最佳」與選定狀態
   renderForecast();
   renderDayStrip(); // 選定點位三日概覽
 }
@@ -114,11 +121,12 @@ function plainSummary(result) {
   if (!result.probs) return "拿不到天氣資料，僅顯示太陽時間表。";
   const r = result.probs.reasons.join("");
   if (r.includes("死亡條款")) return "低雲或降雨會全面遮擋，今晚基本上看不到。";
+  const go = result.verdict === VERDICT_GO; // 行動建議跟著判定走，不與「跳過」自相矛盾
   let s;
-  if (r.includes("理想帶")) s = "雲況在理想帶：低雲有縫、中高雲有燃料，值得出門。";
+  if (r.includes("理想帶")) s = `雲況在理想帶：低雲有縫、中高雲有燃料${go ? "，值得出門" : ""}。`;
   else if (r.includes("太乾淨")) s = "天空太乾淨，多半只是普通橘色夕陽。";
   else if (r.includes("太厚")) s = "中高雲偏厚，夕陽光不一定穿得透。";
-  else s = "雲況中性，照機率決定。";
+  else s = go ? "雲況中性，照機率決定。" : "雲況中性偏保守，這晚可以跳過。";
   if (r.includes("低雲干擾")) s += "但低雲偏多是最大變數。";
   if (r.includes("雨後放晴")) s += "雨後放晴是加分項。";
   return s;
@@ -137,14 +145,17 @@ function countdownHtml(result) {
   if (now >= result.sun.sunsetMs) return "";
   const mins = Math.round((result.sun.sunsetMs - now) / 60000);
   const cd = `距日落 <b>${Math.floor(mins / 60)} 小時 ${String(mins % 60).padStart(2, "0")} 分</b>`;
-  const access = parseAccessMinutes(result.viewpoint.access);
+  // 出發建議只在判定「出發」時給——跳過日還叫人幾點出門是自相矛盾
   let dep = "";
-  if (access) {
-    const leaveBy = result.sun.goldenStartMs - access * 60000;
-    dep =
-      now <= leaveBy
-        ? `建議 <b>${hhmm(leaveBy)}</b> 前出發（路程約 ${access} 分，趕上黃金時段）`
-        : `現在出發約 <b>${hhmm(now + access * 60000)}</b> 抵達`;
+  if (result.verdict === VERDICT_GO) {
+    const access = parseAccessMinutes(result.viewpoint.access);
+    if (access) {
+      const leaveBy = result.sun.goldenStartMs - access * 60000;
+      dep =
+        now <= leaveBy
+          ? `建議 <b>${hhmm(leaveBy)}</b> 前出發（路程約 ${access} 分，趕上黃金時段）`
+          : `現在出發約 <b>${hhmm(now + access * 60000)}</b> 抵達`;
+    }
   }
   return `<div class="countdown-row"><span>${cd}</span>${dep ? `<span>${dep}</span>` : ""}</div>`;
 }
@@ -218,10 +229,22 @@ function renderForecast() {
   const p = main.probs;
   const hw = main.intervalHalfWidth ?? 10;
   const vClass = main.verdict === VERDICT_GO ? "go" : main.verdict === VERDICT_NO_DATA ? "nodata" : "skip";
+  // 判定的主詞是「這個點位」；跳過日不再用「推薦」字眼，明確標示是哪個點、以及是否為本區最佳
+  const vpName = esc(main.viewpoint.name);
+  const vpCity = main.viewpoint.city ? `<span class="muted small">・${esc(main.viewpoint.city)}</span>` : "";
+  const isRegionBest = state.recommended && main.viewpoint.id === state.recommended.viewpoint.id;
+  let vpLine;
+  if (main.verdict === VERDICT_GO) {
+    vpLine = `推薦 ${vpName}${vpCity}`;
+  } else if (main.verdict === VERDICT_NO_DATA) {
+    vpLine = `${vpName}${vpCity}`;
+  } else {
+    vpLine = `${vpName}${vpCity}<span class="vp-note">${isRegionBest ? "· 本區今晚各點都不理想" : "· 今晚此點不理想"}</span>`;
+  }
   card.innerHTML = `
     <div class="verdict-head">
       <span class="verdict-word ${vClass}">${esc(main.verdict)}</span>
-      <span class="verdict-vp">${esc(main.viewpoint.name)}${main.viewpoint.city ? `<span class="muted small">・${esc(main.viewpoint.city)}</span>` : ""}${main.viewpoint.needs_field_verification ? `<span class="draft-badge" title="${esc(main.viewpoint.coord_source || "座標草稿")}">座標待實地確認</span>` : ""}</span>
+      <span class="verdict-vp">${vpLine}</span>
     </div>
     <p class="plain-summary">${esc(plainSummary(main))}</p>
     ${countdownHtml(main)}
@@ -400,9 +423,13 @@ async function renderChecklist(main) {
     .filter((c) => c.type !== "youtube" && (!c.viewpoint_id || c.viewpoint_id === vpId))
     .map((c) => `<a class="btn ghost check-link" target="_blank" rel="noopener" href="${esc(c.url)}">📷 ${esc(c.name)}${c.verified === false ? "（待驗證）" : ""}</a>`)
     .join("");
+  // 跳過日不談「出發」——即時影像變成「不出門也能看」的備案，也能抓預測失誤
+  const going = main.verdict === VERDICT_GO;
   card.innerHTML = `
-    <h2>出發前 60 秒確認</h2>
-    <p class="muted small">預測給機率，眼睛做最後確認——這一步取代「16:30 抬頭看西天」。</p>
+    <h2>${going ? "出發前 60 秒確認" : "不出門也能看：遠端看西天"}</h2>
+    <p class="muted small">${going
+      ? "預測給機率，眼睛做最後確認——這一步取代「16:30 抬頭看西天」。"
+      : "判定保守但天空偶爾會給驚喜——用即時影像瞄一眼西天，真的燒起來再衝也來得及。"}</p>
     <ol class="reasons small">
       <li>雷達：有無回波正在移入（對流殘留）</li>
       <li>即時影像：西邊天空低雲是否比預報厚</li>
@@ -459,8 +486,14 @@ function renderRegionBar() {
   const tabs = availableRegions()
     .map((r) => `<button class="region-tab ${r === state.region ? "active" : ""}" data-region="${r}" aria-pressed="${r === state.region}">${r}</button>`)
     .join("");
+  const bestId = state.recommended?.viewpoint.id;
   const chips = vpsInRegion(state.region)
-    .map((v) => `<button class="vp-chip ${v.id === state.selectedVpId ? "active" : ""}" data-vp="${esc(v.id)}" aria-pressed="${v.id === state.selectedVpId}">${esc(v.name)}${v.needs_field_verification ? '<span class="draft-dot" title="座標草稿，待實地確認">•</span>' : ""}</button>`)
+    .map((v) => {
+      const sel = v.id === state.selectedVpId;
+      const best = v.id === bestId;
+      const mark = best ? '<span class="best-star" title="本區今晚最佳">★</span>' : "";
+      return `<button class="vp-chip ${sel ? "active" : ""} ${best ? "best" : ""}" data-vp="${esc(v.id)}" aria-pressed="${sel}">${mark}${esc(v.name)}</button>`;
+    })
     .join("");
   bar.innerHTML = `
     <div class="region-row">
@@ -480,10 +513,9 @@ function renderRegionBar() {
 function selectRegion(region) {
   if (region === state.region) return;
   state.region = region;
-  // 切地區 → 選定點改為該區第一點（或該區推薦，稍後 runAnalysis 內若無選定會退回推薦）
-  state.selectedVpId = vpsInRegion(region)[0]?.id ?? null;
+  // 切地區 → 清空選點，runAnalysis 會自動選本區最佳（推薦）
+  state.selectedVpId = null;
   state.expandedVp = null;
-  persistSelection();
   runAnalysis();
 }
 

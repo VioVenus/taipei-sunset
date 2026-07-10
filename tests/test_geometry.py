@@ -101,14 +101,14 @@ def test_load_viewpoints_seed():
     assert jt.city == "臺北市" and jt.region == "北"
 
 
-def test_draft_viewpoints_are_marked_and_have_region():
-    """全台草稿點必須標 needs_field_verification、附 city/region/coord_source，
-    且不得偽造遮蔽幾何（horizon_obstruction 留空）——尊重歷史教訓 1。"""
+def test_all_viewpoints_have_city_region_and_cover_taiwan():
+    """全台點位都必須有 city/region；地區涵蓋北中南東離島；
+    非人工實測遮蔽的點（有 coord_source）不得偽造遮蔽幾何（horizon_obstruction 留空）。"""
     viewpoints = load_viewpoints()
     regions = {vp.region for vp in viewpoints.values()}
     assert {"北", "中", "南", "東", "離島"} <= regions  # 全台涵蓋
     for vp in viewpoints.values():
         assert vp.city and vp.region, f"{vp.id} 缺 city/region"
-        if vp.needs_field_verification:
-            assert vp.coord_source, f"{vp.id} 草稿點必須註明 coord_source"
-            assert vp.horizon_obstruction == (), f"{vp.id} 草稿點不得偽造遮蔽幾何"
+        # 座標來自公開地圖研究（coord_source 記錄）的點不偽造遮蔽仰角
+        if vp.coord_source:
+            assert vp.horizon_obstruction == (), f"{vp.id} 不得偽造遮蔽幾何"

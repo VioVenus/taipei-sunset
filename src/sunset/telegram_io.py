@@ -91,7 +91,8 @@ def format_analysis(result: AnalysisResult) -> str:
             )
     cc = result.cross_check
     if cc is not None and cc.ok:
-        line = f"CWA 交叉驗證（臺北市 {cc.period_label}）：{cc.wx_text}，降雨機率 {cc.pop_percent:.0f}%"
+        cc_city = cc.location_name or result.viewpoint.city or "CWA"
+        line = f"CWA 交叉驗證（{cc_city} {cc.period_label}）：{cc.wx_text}，降雨機率 {cc.pop_percent:.0f}%"
         om_pop = result.weather.precip_prob_evening
         if om_pop is not None and abs(cc.pop_percent - om_pop) > 30.0:
             line += f"\n⚠️ 與 Open-Meteo（{om_pop:.0f}%）分歧大，今晚不確定性高"

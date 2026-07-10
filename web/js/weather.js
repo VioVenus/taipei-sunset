@@ -181,7 +181,8 @@ export function demoWeather(dateStr) {
       modelSpread: 8, ensembleModels: "best_match,icon_seamless,gfs_seamless" },
     { cloudLow: 12, cloudMid: 10, cloudHigh: 22, precipProbEvening: 5, rainRecentFlag: false,
       modelSpread: 30, ensembleModels: "best_match,icon_seamless,gfs_seamless" },
-    { cloudLow: 55, cloudMid: 45, cloudHigh: 30, precipProbEvening: 45, rainRecentFlag: false,
+    // 死亡條款跳過日：低雲罩頂＋傍晚降雨高 → 展示「跳過」文案（不出門備案、無出發建議）
+    { cloudLow: 78, cloudMid: 50, cloudHigh: 25, precipProbEvening: 70, rainRecentFlag: false,
       modelSpread: null, ensembleModels: "" },
   ];
   const p = presets[variant];
