@@ -5,6 +5,7 @@ import { demoWeather, fetchWeather } from "./weather.js";
 import { dateLabel, hhmm, intervalStr, taipeiDatePlus } from "./format.js";
 import { ENGINE_VERSION, probInterval } from "./scoring.js";
 import { loadLogs, weeklyStats } from "./logs.js";
+import { distanceKm } from "./geometry.js";
 import {
   dispatchReport,
   FEEDBACK_URL,
@@ -25,61 +26,87 @@ function nowMs() {
   return Date.UTC(y, m - 1, d, 16 - TAIPEI_UTC_OFFSET_H, 20);
 }
 
+const REGIONS = ["北", "中", "南", "東", "離島"]; // 顯示順序
+const SEL_REGION_KEY = "sunset.region";
+const SEL_VP_KEY = "sunset.vp";
+
 const state = {
   offset: 0, // 0=今天…3
   viewpoints: [],
-  results: [],
+  region: null, // 選定地區（北/中/南/東/離島）
+  selectedVpId: null, // 選定點位
+  results: [], // 目前地區各點位分析
   recommended: null,
   expandedVp: null,
   lastFetchMs: null,
   weatherStale: false,
-  weatherByDate: new Map(), // dateStr → WeatherWindow（工作階段快取）
+  weatherCache: new Map(), // `${dateStr}|${vpId}` → WeatherWindow（工作階段快取）
   cams: null, // data/cams.json（出發前確認連結，人工維護）
 };
+
+const vpsInRegion = (region) => state.viewpoints.filter((v) => v.region === region);
+const findVp = (id) => state.viewpoints.find((v) => v.id === id);
+const availableRegions = () => REGIONS.filter((r) => state.viewpoints.some((v) => v.region === r));
 
 // ── 資料載入 ─────────────────────────────────────────────
 async function loadViewpoints() {
   const resp = await fetch("data/viewpoints.json");
   state.viewpoints = await resp.json();
+  // 還原上次選擇；驗證仍存在，否則預設第一個可用地區的第一點
+  const savedVp = findVp(localStorage.getItem(SEL_VP_KEY) || "");
+  const savedRegion = localStorage.getItem(SEL_REGION_KEY);
+  if (savedVp) {
+    state.selectedVpId = savedVp.id;
+    state.region = savedVp.region;
+  } else {
+    state.region = availableRegions().includes(savedRegion) ? savedRegion : availableRegions()[0];
+    state.selectedVpId = vpsInRegion(state.region)[0]?.id ?? null;
+  }
 }
 
-const WX_CACHE_KEY = "sunset.last_weather";
+function persistSelection() {
+  try {
+    localStorage.setItem(SEL_REGION_KEY, state.region);
+    localStorage.setItem(SEL_VP_KEY, state.selectedVpId);
+  } catch { /* ignore */ }
+}
 
-async function getWeather(dateStr, lat, lon, { fresh = false } = {}) {
+const WX_CACHE_PREFIX = "sunset.wx."; // 每點各自離線快取（全台各點位置不同）
+
+async function getWeather(dateStr, vp, { fresh = false } = {}) {
   if (DEMO) return demoWeather(dateStr);
-  if (!fresh && state.weatherByDate.has(dateStr)) return state.weatherByDate.get(dateStr);
-  const w = await fetchWeather(dateStr, lat, lon);
+  const key = `${dateStr}|${vp.id}`;
+  if (!fresh && state.weatherCache.has(key)) return state.weatherCache.get(key);
+  const w = await fetchWeather(dateStr, vp.lat, vp.lon);
   if (w.ok) {
-    state.weatherByDate.set(dateStr, w);
+    state.weatherCache.set(key, w);
     try {
-      localStorage.setItem(WX_CACHE_KEY, JSON.stringify(w));
+      localStorage.setItem(WX_CACHE_PREFIX + key, JSON.stringify(w));
     } catch { /* ignore */ }
-    state.weatherStale = false;
     return w;
   }
   try {
-    const cached = JSON.parse(localStorage.getItem(WX_CACHE_KEY) || "null");
-    if (cached && cached.targetDate === dateStr) {
-      state.weatherStale = true;
-      return cached;
-    }
+    const cached = JSON.parse(localStorage.getItem(WX_CACHE_PREFIX + key) || "null");
+    if (cached && cached.targetDate === dateStr) return { ...cached, _stale: true };
   } catch { /* ignore */ }
   return w;
 }
 
 async function runAnalysis({ fresh = false } = {}) {
   const dateStr = taipeiDatePlus(state.offset);
+  renderRegionBar();
   const card = $("verdict-card");
   card.classList.add("skeleton");
   card.innerHTML = `<p class="muted small">取得 Open-Meteo 天氣資料中…（逾時會自動降級）</p>`;
-  const vp0 = state.viewpoints[0];
-  // 兩點位同城，取單一天氣（減少 API 呼叫；與 Python 版差異可忽略）
-  const weather = await getWeather(dateStr, vp0.lat, vp0.lon, { fresh });
-  state.results = state.viewpoints.map((vp) => analyze(dateStr, vp, weather, nowMs()));
+  // 全台各點位置不同，天氣須逐點擷取（同地區點數不多，快取後切換零成本）。
+  const active = vpsInRegion(state.region);
+  const weathers = await Promise.all(active.map((vp) => getWeather(dateStr, vp, { fresh })));
+  state.results = active.map((vp, i) => analyze(dateStr, vp, weathers[i], nowMs()));
   state.recommended = recommend(state.results);
-  state.lastFetchMs = weather.fetchedAt ?? Date.now();
+  state.weatherStale = weathers.some((w) => w._stale);
+  state.lastFetchMs = Math.max(0, ...weathers.map((w) => w.fetchedAt ?? 0)) || Date.now();
   renderForecast();
-  renderDayStrip(); // 背景補齊其他日期
+  renderDayStrip(); // 選定點位三日概覽
 }
 
 // ── 白話摘要（新手可讀，from 主導理由）──────────────────
@@ -174,7 +201,10 @@ function renderForecast() {
   const dateStr = taipeiDatePlus(state.offset);
   $("topbar-date").textContent = `${dateLabel(dateStr)} 日落`;
 
-  const main = state.recommended ?? state.results[0];
+  const main =
+    state.results.find((r) => r.viewpoint.id === state.selectedVpId) ??
+    state.recommended ??
+    state.results[0];
   const card = $("verdict-card");
   card.classList.remove("skeleton");
   $("preliminary-banner").classList.toggle("hidden", !main.preliminary);
@@ -191,7 +221,7 @@ function renderForecast() {
   card.innerHTML = `
     <div class="verdict-head">
       <span class="verdict-word ${vClass}">${esc(main.verdict)}</span>
-      <span class="verdict-vp">推薦：${esc(main.viewpoint.name)}</span>
+      <span class="verdict-vp">${esc(main.viewpoint.name)}${main.viewpoint.city ? `<span class="muted small">・${esc(main.viewpoint.city)}</span>` : ""}${main.viewpoint.needs_field_verification ? `<span class="draft-badge" title="${esc(main.viewpoint.coord_source || "座標草稿")}">座標待實地確認</span>` : ""}</span>
     </div>
     <p class="plain-summary">${esc(plainSummary(main))}</p>
     ${countdownHtml(main)}
@@ -219,7 +249,7 @@ function renderForecast() {
   `;
   card.querySelector("#retry-btn")?.addEventListener("click", () => runAnalysis({ fresh: true }));
   card.querySelector("#share-btn")?.addEventListener("click", async () => {
-    const text = `${dateLabel(dateStr)} 台北日落判定：${main.verdict}・${main.viewpoint.name}\n` +
+    const text = `${dateLabel(dateStr)} 日落判定：${main.verdict}・${main.viewpoint.name}${main.viewpoint.city ? `（${main.viewpoint.city}）` : ""}\n` +
       (p ? `火燒雲 ${intervalStr(p.burnLevel, hw)}｜日落 ${hhmm(main.sun.sunsetMs)}\n` : "") +
       location.href;
     try {
@@ -298,7 +328,7 @@ function renderForecast() {
 
   // 其他點位
   const others = state.results.filter((r) => r.viewpoint.id !== main.viewpoint.id);
-  $("others-card").innerHTML = `<h2>其他點位</h2>` + others.map((r) => `
+  $("others-card").innerHTML = (others.length ? `<h2>同區其他點位</h2>` : "") + others.map((r) => `
     <button class="other-vp" data-vp="${esc(r.viewpoint.id)}" aria-expanded="${state.expandedVp === r.viewpoint.id}">
       <span>${esc(r.viewpoint.name)}<br><span class="muted small">${esc(r.viewpoint.access || "")}</span></span>
       <span>${r.probs ? `火燒雲 ${intervalStr(r.probs.burnLevel, r.intervalHalfWidth)}` : "資料不足"}・${esc(r.verdict)}</span>
@@ -325,6 +355,28 @@ function renderForecast() {
 }
 
 // ── 出發前 60 秒確認（雷達/衛星/即時影像，人工維護清單）──
+const YT_ID_RE = /^[A-Za-z0-9_-]{6,20}$/; // 防注入：只接受合法 id token
+
+function camFacade(c) {
+  const id = YT_ID_RE.test(c.youtube_id || "") ? c.youtube_id : "";
+  const cid = YT_ID_RE.test(c.channel_id || "") ? c.channel_id : "";
+  if (!id && !cid) return "";
+  const thumb = id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : "";
+  const badge = c.verified === false ? "即時直播・連結待驗證" : "即時直播";
+  return `
+    <figure class="cam" data-yt="${esc(id)}" data-channel="${esc(cid)}">
+      <button class="cam-play" type="button" aria-label="播放 ${esc(c.name)} 即時影像">
+        ${thumb ? `<img class="cam-thumb" loading="lazy" src="${thumb}" alt="">` : `<span class="cam-thumb cam-thumb-blank"></span>`}
+        <span class="cam-play-icon" aria-hidden="true">▶</span>
+        <span class="cam-badge">${esc(badge)}</span>
+      </button>
+      <figcaption>${esc(c.name)}<br>
+        <span class="muted small">${esc(c.looks || "")}</span>
+        ${c.url ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">在 YouTube 開啟</a>` : ""}
+      </figcaption>
+    </figure>`;
+}
+
 async function renderChecklist(main) {
   const card = $("checklist-card");
   if (!card) return;
@@ -335,45 +387,150 @@ async function renderChecklist(main) {
       state.cams = { links: [], cams: [] };
     }
   }
+  const vpId = main.viewpoint.id;
+  const allCams = state.cams.cams || [];
+  // 即時直播 facade：僅顯示對應此點位者（避免把北部鏡頭塞給南部使用者）
+  const ytCams = allCams.filter((c) => c.type === "youtube" && c.youtube_id && c.viewpoint_id === vpId);
+  const facades = ytCams.map(camFacade).join("");
+  // 雷達/衛星（全台通用）＋頁面型即時影像（此點位或全域）
   const links = (state.cams.links || [])
-    .map((l) => `<a class="btn ghost check-link" target="_blank" rel="noopener" href="${l.url}">${esc(l.name)}</a>`)
+    .map((l) => `<a class="btn ghost check-link" target="_blank" rel="noopener" href="${esc(l.url)}">${esc(l.name)}</a>`)
     .join("");
-  const cams = (state.cams.cams || [])
-    .filter((c) => !c.viewpoint_id || c.viewpoint_id === main.viewpoint.id)
-    .map((c) => `<a class="btn ghost check-link" target="_blank" rel="noopener" href="${c.url}">📷 ${esc(c.name)}${c.verified === false ? "（連結待驗證）" : ""}</a>`)
+  const pageCams = allCams
+    .filter((c) => c.type !== "youtube" && (!c.viewpoint_id || c.viewpoint_id === vpId))
+    .map((c) => `<a class="btn ghost check-link" target="_blank" rel="noopener" href="${esc(c.url)}">📷 ${esc(c.name)}${c.verified === false ? "（待驗證）" : ""}</a>`)
     .join("");
   card.innerHTML = `
     <h2>出發前 60 秒確認</h2>
     <p class="muted small">預測給機率，眼睛做最後確認——這一步取代「16:30 抬頭看西天」。</p>
     <ol class="reasons small">
-      <li>雷達：有無回波正在移入台北盆地（對流殘留）</li>
-      <li>衛星/即時影像：西邊天空低雲是否比預報厚</li>
+      <li>雷達：有無回波正在移入（對流殘留）</li>
+      <li>即時影像：西邊天空低雲是否比預報厚</li>
     </ol>
-    <div class="row" style="flex-wrap:wrap">${links}${cams}</div>`;
+    ${facades ? `<div class="cam-grid">${facades}</div>` : ""}
+    <div class="row" style="flex-wrap:wrap">${links}${pageCams}</div>`;
+
+  // 點縮圖才載入 iframe（lite facade）：不自動載 3 個 player，離線亦不崩、省流量、隱私友善
+  card.querySelectorAll(".cam-play").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const fig = btn.closest(".cam");
+      const id = fig.dataset.yt;
+      const cid = fig.dataset.channel;
+      const src = cid
+        ? `https://www.youtube-nocookie.com/embed/live_stream?channel=${encodeURIComponent(cid)}&autoplay=1&rel=0&playsinline=1`
+        : `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1&rel=0&playsinline=1`;
+      const frame = document.createElement("div");
+      frame.className = "cam-frame";
+      frame.innerHTML = `<iframe src="${src}" title="即時影像" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+      btn.replaceWith(frame);
+    });
+  });
 }
 
-// ── 三日概覽條（點擊切換日期）────────────────────────────
+// ── 三日概覽條（選定點位跨三日；點擊切換日期）────────────
 async function renderDayStrip() {
   const strip = $("day-strip");
   const labels = ["今天", "明天", "後天"];
-  const vp0 = state.viewpoints[0];
+  const mvp = findVp(state.selectedVpId) ?? vpsInRegion(state.region)[0] ?? state.viewpoints[0];
+  if (!mvp) { strip.innerHTML = ""; return; }
   const cells = [];
   for (let off = 0; off < 3; off++) {
     const dateStr = taipeiDatePlus(off);
-    const weather = await getWeather(dateStr, vp0.lat, vp0.lon); // 快取命中則零成本
-    const results = state.viewpoints.map((vp) => analyze(dateStr, vp, weather, nowMs()));
-    const best = recommend(results);
-    cells.push({ off, dateStr, best });
+    const weather = await getWeather(dateStr, mvp); // 快取命中則零成本
+    const res = analyze(dateStr, mvp, weather, nowMs());
+    cells.push({ off, dateStr, res });
   }
-  strip.innerHTML = cells.map(({ off, dateStr, best }) => `
+  strip.innerHTML = cells.map(({ off, dateStr, res }) => `
     <button class="day-chip ${state.offset === off ? "active" : ""}" data-offset="${off}"
             aria-pressed="${state.offset === off}">
       <span class="d-label">${labels[off]} ${dateStr.slice(5).replace("-", "/")}</span>
-      <span class="d-value">${best?.probs ? `🔥 ${intervalStr(best.probs.burnLevel, best.intervalHalfWidth)}` : "—"}</span>
-      <span class="d-verdict ${best?.verdict === VERDICT_GO ? "go" : "skip"}">${best ? esc(best.verdict) : "資料不足"}</span>
+      <span class="d-value">${res?.probs ? `🔥 ${intervalStr(res.probs.burnLevel, res.intervalHalfWidth)}` : "—"}</span>
+      <span class="d-verdict ${res?.verdict === VERDICT_GO ? "go" : "skip"}">${res ? esc(res.verdict) : "資料不足"}</span>
     </button>`).join("");
   strip.querySelectorAll(".day-chip").forEach((btn) =>
     btn.addEventListener("click", () => setOffset(Number(btn.dataset.offset))),
+  );
+}
+
+// ── 地區分頁 + 點位選擇 + 定位找最近 ─────────────────────
+function renderRegionBar() {
+  const bar = $("region-bar");
+  if (!bar) return;
+  const tabs = availableRegions()
+    .map((r) => `<button class="region-tab ${r === state.region ? "active" : ""}" data-region="${r}" aria-pressed="${r === state.region}">${r}</button>`)
+    .join("");
+  const chips = vpsInRegion(state.region)
+    .map((v) => `<button class="vp-chip ${v.id === state.selectedVpId ? "active" : ""}" data-vp="${esc(v.id)}" aria-pressed="${v.id === state.selectedVpId}">${esc(v.name)}${v.needs_field_verification ? '<span class="draft-dot" title="座標草稿，待實地確認">•</span>' : ""}</button>`)
+    .join("");
+  bar.innerHTML = `
+    <div class="region-row">
+      <div class="region-tabs" role="tablist" aria-label="地區">${tabs}</div>
+      <button class="btn ghost locate-btn" id="locate-btn" aria-label="用定位找最近的觀景點">📍 最近</button>
+    </div>
+    <div class="vp-chips" role="tablist" aria-label="點位">${chips}</div>`;
+  bar.querySelectorAll(".region-tab").forEach((btn) =>
+    btn.addEventListener("click", () => selectRegion(btn.dataset.region)),
+  );
+  bar.querySelectorAll(".vp-chip").forEach((btn) =>
+    btn.addEventListener("click", () => selectViewpoint(btn.dataset.vp)),
+  );
+  $("locate-btn").addEventListener("click", locateNearest);
+}
+
+function selectRegion(region) {
+  if (region === state.region) return;
+  state.region = region;
+  // 切地區 → 選定點改為該區第一點（或該區推薦，稍後 runAnalysis 內若無選定會退回推薦）
+  state.selectedVpId = vpsInRegion(region)[0]?.id ?? null;
+  state.expandedVp = null;
+  persistSelection();
+  runAnalysis();
+}
+
+function selectViewpoint(id) {
+  if (!findVp(id)) return;
+  state.selectedVpId = id;
+  persistSelection();
+  renderRegionBar();
+  renderForecast(); // 天氣多半已快取；未快取的點在 runAnalysis 已抓
+  renderDayStrip();
+}
+
+function locateNearest() {
+  const btn = $("locate-btn");
+  if (!navigator.geolocation) {
+    $("data-footnote").textContent = "此裝置不支援定位；請用地區分頁手動選";
+    return;
+  }
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = "定位中…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      let best = null;
+      let bestKm = Infinity;
+      for (const v of state.viewpoints) {
+        const d = distanceKm(latitude, longitude, v.lat, v.lon);
+        if (d < bestKm) { bestKm = d; best = v; }
+      }
+      btn.disabled = false;
+      btn.textContent = orig;
+      if (best) {
+        state.region = best.region;
+        state.selectedVpId = best.id;
+        state.expandedVp = null;
+        persistSelection();
+        $("data-footnote").textContent = `最近點位：${best.name}（約 ${bestKm.toFixed(0)} km）`;
+        runAnalysis();
+      }
+    },
+    () => {
+      btn.disabled = false;
+      btn.textContent = orig;
+      $("data-footnote").textContent = "定位失敗或被拒；請用地區分頁手動選";
+    },
+    { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 },
   );
 }
 

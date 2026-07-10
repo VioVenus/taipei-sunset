@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>台北日落 — 火燒雲預測</title>
-  <meta name="description" content="台北日落／火燒雲預測：四情境機率區間、點位推薦、太陽時間軸" />
+  <title>台灣日落 — 火燒雲預測</title>
+  <meta name="description" content="全台日落／火燒雲預測：四情境機率區間、地區點位、太陽時間軸、出發前即時影像" />
   <meta name="theme-color" content="#14161d" media="(prefers-color-scheme: dark)" />
   <meta name="theme-color" content="#faf7f2" media="(prefers-color-scheme: light)" />
   <link rel="manifest" href="manifest.webmanifest" />
@@ -16,7 +16,7 @@
 </head>
 <body>
   <header class="topbar">
-    <h1 id="topbar-date">— 台北日落</h1>
+    <h1 id="topbar-date">— 台灣日落</h1>
     <div class="chips" id="date-chips" role="tablist" aria-label="日期選擇">
       <button class="chip active" data-offset="0">今天</button>
       <button class="chip" data-offset="1">明天</button>
@@ -33,6 +33,7 @@
       <div id="preliminary-banner" class="banner warn hidden">
         📌 初步展望・信心低，以當日 16:20 推播為準（早上的預報對午後對流幾乎無鑑別力）
       </div>
+      <div class="region-bar full" id="region-bar" aria-label="地區與點位選擇"></div>
       <div id="verdict-card" class="card verdict-card full skeleton" aria-live="polite"></div>
       <div class="day-strip full" id="day-strip" aria-label="三日概覽"></div>
       <div class="card" id="timeline-card"></div>
