@@ -71,9 +71,17 @@ def _analyze_all(
     viewpoints = load_viewpoints(args.viewpoints_file)
     fetcher = OpenMeteoFetcher()
     burned = logbook.burned_on(target_date - timedelta(days=1), args.logs_dir)
-    # CWA 交叉驗證（設 CWA_API_KEY 才啟用；一日取一次，全點位共用）
-    cwa = CWAFetcher(os.environ.get("CWA_API_KEY")).fetch_crosscheck(target_date)
-    cross_check = cwa if cwa.ok else None
+    # CWA 交叉驗證（設 CWA_API_KEY 才啟用）：F-C0032-001 涵蓋全台 22 縣市，
+    # 按各點 city 查、同縣市快取共用，一日一縣市一次呼叫。
+    cwa = CWAFetcher(os.environ.get("CWA_API_KEY"))
+    cwa_cache: dict[str, analysis_mod.CWACrossCheck] = {}
+
+    def cross_check_for(city: str) -> analysis_mod.CWACrossCheck | None:
+        if city not in cwa_cache:
+            cwa_cache[city] = cwa.fetch_crosscheck(target_date, city)
+        result = cwa_cache[city]
+        return result if result.ok else None
+
     return [
         analysis_mod.analyze(
             target_date,
@@ -81,7 +89,7 @@ def _analyze_all(
             fetcher,
             burned_yesterday=burned,
             front_within_48h=front,
-            cross_check=cross_check,
+            cross_check=cross_check_for(vp.city),
         )
         for vp in viewpoints.values()
     ]

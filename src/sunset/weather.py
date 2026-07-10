@@ -14,18 +14,47 @@ from typing import Any, Protocol
 
 import requests
 
+from sunset import solar
+
 OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
 REQUEST_TIMEOUT_SEC = 10.0
 RETRY_COUNT = 1  # 失敗重試一次
 
-# 評估窗口：當日 17:00–19:00（台北時間，含端點整點）
-WINDOW_HOURS = (17, 18, 19)
-# 死亡條款用的傍晚降雨機率：18:00–19:00 取最大
-EVENING_HOURS = (18, 19)
-# 雨後放晴判定：12:00–16:00 有降雨、17:00–18:00 已停
-RAIN_RECENT_HOURS = (12, 13, 14, 15, 16)
-RAIN_STOP_HOURS = (17, 18)
+# 評估窗口以「當日該點的實際日落時刻」為中心動態決定（v1.2.0）：
+# 火燒雲是繞著日落時刻發生的現象，全台跨緯度、跨季節日落時刻不同
+# （台北夏季 ~18:47、恆春/冬季 ~17:10），固定 17–19 會在南部/東部/冬季失準。
+# 以下四個窗口皆相對 sunset_hour；當 sunset_hour=18（台北夏季）時退回原固定值，
+# 保完全後向相容：window (17,18,19)｜evening (18,19)｜recent 12–16｜stop (17,18)。
+DEFAULT_SUNSET_HOUR = 18  # 日落時刻求解失敗時的保底（台灣一定有日落，僅防禦）
 RAIN_MM_THRESHOLD = 0.1
+
+
+def _window_hours(sunset_hour: int) -> tuple[int, int, int]:
+    """評估窗口：日落前後各一小時（含日落所在整點）。"""
+    return (sunset_hour - 1, sunset_hour, sunset_hour + 1)
+
+
+def _evening_hours(sunset_hour: int) -> tuple[int, int]:
+    """死亡條款用傍晚降雨：日落整點與其後一小時取最大。"""
+    return (sunset_hour, sunset_hour + 1)
+
+
+def _rain_recent_hours(sunset_hour: int) -> tuple[int, ...]:
+    """雨後放晴判定的午後時段：窗口前 2–6 小時（共 5 小時）。"""
+    return tuple(range(sunset_hour - 6, sunset_hour - 1))
+
+
+def _rain_stop_hours(sunset_hour: int) -> tuple[int, int]:
+    """雨後放晴判定的『已停』時段：日落前一小時到日落整點。"""
+    return (sunset_hour - 1, sunset_hour)
+
+
+def _sunset_hour(target_date: date, lat: float, lon: float) -> int:
+    """當日該點日落所在的台北時整點（求解失敗保底 18）。"""
+    try:
+        return solar.sunset_time(target_date, lat, lon).hour
+    except Exception:  # noqa: BLE001 - 防禦：台灣一定有日落
+        return DEFAULT_SUNSET_HOUR
 
 HOURLY_FIELDS = (
     "cloud_cover_low",
@@ -45,8 +74,9 @@ ENSEMBLE_CLOUD_FIELDS = ("cloud_cover_low", "cloud_cover_mid", "cloud_cover_high
 
 @dataclass(frozen=True)
 class WeatherWindow:
-    """17:00–19:00 評估窗口的彙總天氣（共同介面）。
+    """以日落時刻為中心的評估窗口彙總天氣（共同介面）。
 
+    窗口為日落前後各一小時（見 weather._window_hours），跨全台、跨季節動態決定。
     ok=False 時表示資料不足（API 失敗或欄位缺漏），數值欄位為 None。
     """
 
@@ -68,6 +98,7 @@ class WeatherWindow:
     # None = 集成資料取不到 → 顯示層退回固定 ±10 區間。評分機率不受影響。
     model_spread: float | None = None
     ensemble_models: str = ""  # 例如 "best_match,icon_seamless,gfs_seamless"
+    window_label: str = ""  # 評估窗口顯示標籤，例如 "17–19時"（動態，依日落時刻）
 
 
 class WeatherFetcher(Protocol):
@@ -121,20 +152,21 @@ class OpenMeteoFetcher:
                 last_error = f"{type(exc).__name__}: {exc}"
         if payload is None:
             return _insufficient(target_date, self.source_name, f"Open-Meteo API 失敗：{last_error}")
+        sunset_hour = _sunset_hour(target_date, lat, lon)
         try:
-            window = self._parse(target_date, payload)
+            window = self._parse(target_date, payload, sunset_hour)
         except Exception as exc:  # noqa: BLE001
             return _insufficient(
                 target_date, self.source_name, f"Open-Meteo 回應解析失敗：{type(exc).__name__}: {exc}"
             )
         # 集成分歧為加值資訊：失敗不影響主結果（引擎輸入不變、區間退回固定寬度）
-        spread, models = self._ensemble_spread(target_date, lat, lon, window)
+        spread, models = self._ensemble_spread(target_date, lat, lon, window, sunset_hour)
         if spread is None:
             return window
         return replace(window, model_spread=spread, ensemble_models=models)
 
     def _ensemble_spread(
-        self, target_date: date, lat: float, lon: float, base: WeatherWindow
+        self, target_date: date, lat: float, lon: float, base: WeatherWindow, sunset_hour: int
     ) -> tuple[float | None, str]:
         """跨模式雲量分歧：members = best_match（主呼叫）∪ ENSEMBLE_MODELS。
 
@@ -156,9 +188,11 @@ class OpenMeteoFetcher:
             times: list[str] = hourly["time"]
             hour_index = {datetime.fromisoformat(t).hour: i for i, t in enumerate(times)}
 
+            window_hours = _window_hours(sunset_hour)
+
             def window_mean(field: str, model: str) -> float:
                 col = hourly[f"{field}_{model}"]
-                raw = [col[hour_index[h]] for h in WINDOW_HOURS]
+                raw = [col[hour_index[h]] for h in window_hours]
                 if any(v is None for v in raw):
                     raise ValueError("缺值")
                 return sum(float(v) for v in raw) / len(raw)
@@ -178,7 +212,9 @@ class OpenMeteoFetcher:
         except Exception:  # noqa: BLE001 - 加值路徑，靜默降級
             return None, ""
 
-    def _parse(self, target_date: date, payload: dict[str, Any]) -> WeatherWindow:
+    def _parse(
+        self, target_date: date, payload: dict[str, Any], sunset_hour: int
+    ) -> WeatherWindow:
         hourly = payload["hourly"]
         times: list[str] = hourly["time"]
         hour_index = {datetime.fromisoformat(t).hour: i for i, t in enumerate(times)}
@@ -193,8 +229,10 @@ class OpenMeteoFetcher:
                 values.append(float(v))
             return values
 
-        precip_recent = series("precipitation", RAIN_RECENT_HOURS)
-        precip_stop = series("precipitation", RAIN_STOP_HOURS)
+        window_hours = _window_hours(sunset_hour)
+        evening_hours = _evening_hours(sunset_hour)
+        precip_recent = series("precipitation", _rain_recent_hours(sunset_hour))
+        precip_stop = series("precipitation", _rain_stop_hours(sunset_hour))
         rain_recent = any(v > RAIN_MM_THRESHOLD for v in precip_recent) and all(
             v <= RAIN_MM_THRESHOLD for v in precip_stop
         )
@@ -203,21 +241,22 @@ class OpenMeteoFetcher:
             target_date=target_date,
             source=self.source_name,
             ok=True,
-            cloud_low=_mean(series("cloud_cover_low", WINDOW_HOURS)),
-            cloud_mid=_mean(series("cloud_cover_mid", WINDOW_HOURS)),
-            cloud_high=_mean(series("cloud_cover_high", WINDOW_HOURS)),
-            cloud_total=_mean(series("cloud_cover", WINDOW_HOURS)),
-            visibility_m=_mean(series("visibility", WINDOW_HOURS)),
-            precip_prob_window=_mean(series("precipitation_probability", WINDOW_HOURS)),
-            precip_prob_evening=max(series("precipitation_probability", EVENING_HOURS)),
-            precip_window_mm=sum(series("precipitation", WINDOW_HOURS)),
+            cloud_low=_mean(series("cloud_cover_low", window_hours)),
+            cloud_mid=_mean(series("cloud_cover_mid", window_hours)),
+            cloud_high=_mean(series("cloud_cover_high", window_hours)),
+            cloud_total=_mean(series("cloud_cover", window_hours)),
+            visibility_m=_mean(series("visibility", window_hours)),
+            precip_prob_window=_mean(series("precipitation_probability", window_hours)),
+            precip_prob_evening=max(series("precipitation_probability", evening_hours)),
+            precip_window_mm=sum(series("precipitation", window_hours)),
             rain_recent_flag=rain_recent,
             fetched_at_utc=datetime.now(UTC),
+            window_label=f"{window_hours[0]:02d}–{window_hours[-1]:02d}時",
         )
 
 
 CWA_FORECAST_URL = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001"
-CWA_LOCATION = "臺北市"
+CWA_DEFAULT_LOCATION = "臺北市"  # 點位未標 city 時的後備
 # 與 Open-Meteo 傍晚降雨機率相差超過此值 → 標示來源分歧（提醒不確定性高）
 CWA_DISAGREEMENT_POP = 30.0
 
@@ -233,13 +272,15 @@ class CWACrossCheck:
     wx_text: str = ""  # 天氣現象，例如「多雲時晴」
     pop_percent: float | None = None  # 該時段降雨機率
     period_label: str = ""  # 例如「今晚至明晨」
+    location_name: str = ""  # 對應的縣市（全台 per-city）
     error: str | None = None
 
 
 class CWAFetcher:
     """CWA 開放資料（opendata.cwa.gov.tw，F-C0032-001 一般天氣預報-36小時）。
 
-    交叉驗證來源：取臺北市涵蓋目標日傍晚 18:00 的預報時段。
+    交叉驗證來源：取指定縣市涵蓋目標日傍晚 18:00 的預報時段。F-C0032-001
+    一次涵蓋全台 22 縣市，故一把金鑰即可服務全台各點（按 locationName 取用）。
     未設金鑰或失敗 → ok=False，呼叫端跳過（不影響主流程）。
     """
 
@@ -249,22 +290,35 @@ class CWAFetcher:
         self._api_key = api_key
         self._session = session if session is not None else requests
 
-    def fetch_crosscheck(self, target_date: date) -> CWACrossCheck:
+    def fetch_crosscheck(
+        self, target_date: date, location_name: str = CWA_DEFAULT_LOCATION
+    ) -> CWACrossCheck:
+        location_name = location_name or CWA_DEFAULT_LOCATION
         if not self._api_key:
-            return CWACrossCheck(ok=False, error="未設定 CWA 金鑰，跳過交叉驗證")
-        params = {"Authorization": self._api_key, "locationName": CWA_LOCATION}
+            return CWACrossCheck(
+                ok=False, location_name=location_name, error="未設定 CWA 金鑰，跳過交叉驗證"
+            )
+        params = {"Authorization": self._api_key, "locationName": location_name}
         try:
             resp = self._session.get(CWA_FORECAST_URL, params=params, timeout=REQUEST_TIMEOUT_SEC)
             resp.raise_for_status()
             payload = resp.json()
         except Exception as exc:  # noqa: BLE001 - 降級路徑
-            return CWACrossCheck(ok=False, error=f"CWA API 失敗：{type(exc).__name__}")
+            return CWACrossCheck(
+                ok=False, location_name=location_name, error=f"CWA API 失敗：{type(exc).__name__}"
+            )
         try:
-            return self._parse(target_date, payload)
+            return self._parse(target_date, payload, location_name)
         except Exception as exc:  # noqa: BLE001
-            return CWACrossCheck(ok=False, error=f"CWA 回應解析失敗：{type(exc).__name__}")
+            return CWACrossCheck(
+                ok=False,
+                location_name=location_name,
+                error=f"CWA 回應解析失敗：{type(exc).__name__}",
+            )
 
-    def _parse(self, target_date: date, payload: dict[str, Any]) -> CWACrossCheck:
+    def _parse(
+        self, target_date: date, payload: dict[str, Any], location_name: str
+    ) -> CWACrossCheck:
         location = payload["records"]["location"][0]
         elements = {e["elementName"]: e["time"] for e in location["weatherElement"]}
         # 目標時刻：當日傍晚 18:00（評估窗口中心）
@@ -282,5 +336,9 @@ class CWAFetcher:
         wx_text, period_label = value_at("Wx")
         pop_raw, _ = value_at("PoP")
         return CWACrossCheck(
-            ok=True, wx_text=wx_text, pop_percent=float(pop_raw), period_label=period_label
+            ok=True,
+            wx_text=wx_text,
+            pop_percent=float(pop_raw),
+            period_label=period_label,
+            location_name=location_name,
         )

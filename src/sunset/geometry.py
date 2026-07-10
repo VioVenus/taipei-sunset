@@ -34,7 +34,16 @@ class HorizonObstruction:
 
 @dataclass(frozen=True)
 class Viewpoint:
-    """建檔觀景點（座標與視線資料經人工實測驗證）。"""
+    """建檔觀景點（座標與視線資料經人工實測驗證）。
+
+    全台化後新增 city（CWA 縣市名，用臺不用台）與 region（北/中/南/東/離島）——
+    分別驅動 CWA 交叉驗證的 locationName 與 UI 地區分流。
+
+    needs_field_verification=True 的點為「草稿座標」：座標來自公開地圖/官方觀光資訊，
+    尚未實地確認視線方位與遮蔽（遮蔽一律留空、open_azimuth 取寬鬆西向）。
+    尊重歷史教訓 1（禁止臨場猜測遮蔽幾何）：草稿點只提供地點，不偽造遮蔽仰角，
+    UI 明確標示「座標待實地確認」。coord_source 記錄出處。
+    """
 
     id: str
     name: str
@@ -47,6 +56,10 @@ class Viewpoint:
     access: str = ""
     weather_exclusion: str | None = None
     notes: str = ""
+    city: str = ""  # CWA 縣市名（臺北市/新北市/臺中市…），驅動交叉驗證與 UI 分組
+    region: str = ""  # 北 | 中 | 南 | 東 | 離島
+    needs_field_verification: bool = False  # 草稿座標，遮蔽待實地確認
+    coord_source: str = ""  # 座標出處（草稿點必填）
 
 
 @dataclass(frozen=True)
@@ -96,6 +109,10 @@ def load_viewpoints(path: Path | None = None) -> dict[str, Viewpoint]:
             access=item.get("access", ""),
             weather_exclusion=item.get("weather_exclusion"),
             notes=item.get("notes", ""),
+            city=item.get("city", ""),
+            region=item.get("region", ""),
+            needs_field_verification=bool(item.get("needs_field_verification", False)),
+            coord_source=item.get("coord_source", ""),
         )
         result[vp.id] = vp
     return result

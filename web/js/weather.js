@@ -1,15 +1,31 @@
 // Open-Meteo 客戶端擷取 —— 聚合邏輯與 src/sunset/weather.py 一致。
 // timeout 10s、重試一次、失敗降級為 ok:false（絕不拋到 UI 層）。
 
+import { sunsetTimeMs } from "./solar.js";
+
 export const OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast";
 export const REQUEST_TIMEOUT_MS = 10000;
 export const RETRY_COUNT = 1;
 
-export const WINDOW_HOURS = [17, 18, 19];
-export const EVENING_HOURS = [18, 19];
-export const RAIN_RECENT_HOURS = [12, 13, 14, 15, 16];
-export const RAIN_STOP_HOURS = [17, 18];
+// 評估窗口以「當日該點實際日落時刻」為中心動態決定（v1.2.0，與 weather.py 對齊）：
+// sunset_hour=18（台北夏季）時退回原固定值，保後向相容。
+export const DEFAULT_SUNSET_HOUR = 18;
 export const RAIN_MM_THRESHOLD = 0.1;
+
+export const windowHours = (sh) => [sh - 1, sh, sh + 1];
+export const eveningHours = (sh) => [sh, sh + 1];
+export const rainRecentHours = (sh) => [sh - 6, sh - 5, sh - 4, sh - 3, sh - 2];
+export const rainStopHours = (sh) => [sh - 1, sh];
+
+/** 當日該點日落所在的台北時整點（台灣固定 UTC+8；求解失敗保底 18）。 */
+export function taipeiSunsetHour(dateStr, lat, lon) {
+  try {
+    const ms = sunsetTimeMs(dateStr, lat, lon);
+    return Math.floor((ms / 3600000 + 8) % 24);
+  } catch {
+    return DEFAULT_SUNSET_HOUR;
+  }
+}
 
 const HOURLY_FIELDS = [
   "cloud_cover_low",
@@ -32,7 +48,7 @@ function insufficient(dateStr, error) {
 }
 
 /** 解析 Open-Meteo hourly payload → 評估窗口彙總（與 Python _parse 對齊）。 */
-export function parseOpenMeteo(dateStr, payload) {
+export function parseOpenMeteo(dateStr, payload, sunsetHour) {
   const hourly = payload.hourly;
   // Open-Meteo 回傳台北當地時間字串（timezone=Asia/Taipei）；
   // 直接解析 "YYYY-MM-DDTHH:MM" 的小時欄位，不經 Date（瀏覽器時區無關）。
@@ -47,8 +63,9 @@ export function parseOpenMeteo(dateStr, payload) {
       return Number(v);
     });
 
-  const precipRecent = series("precipitation", RAIN_RECENT_HOURS);
-  const precipStop = series("precipitation", RAIN_STOP_HOURS);
+  const win = windowHours(sunsetHour);
+  const precipRecent = series("precipitation", rainRecentHours(sunsetHour));
+  const precipStop = series("precipitation", rainStopHours(sunsetHour));
   const rainRecent =
     precipRecent.some((v) => v > RAIN_MM_THRESHOLD) &&
     precipStop.every((v) => v <= RAIN_MM_THRESHOLD);
@@ -57,16 +74,17 @@ export function parseOpenMeteo(dateStr, payload) {
     targetDate: dateStr,
     source: "open-meteo",
     ok: true,
-    cloudLow: mean(series("cloud_cover_low", WINDOW_HOURS)),
-    cloudMid: mean(series("cloud_cover_mid", WINDOW_HOURS)),
-    cloudHigh: mean(series("cloud_cover_high", WINDOW_HOURS)),
-    cloudTotal: mean(series("cloud_cover", WINDOW_HOURS)),
-    visibilityM: mean(series("visibility", WINDOW_HOURS)),
-    precipProbWindow: mean(series("precipitation_probability", WINDOW_HOURS)),
-    precipProbEvening: Math.max(...series("precipitation_probability", EVENING_HOURS)),
-    precipWindowMm: series("precipitation", WINDOW_HOURS).reduce((s, v) => s + v, 0),
+    cloudLow: mean(series("cloud_cover_low", win)),
+    cloudMid: mean(series("cloud_cover_mid", win)),
+    cloudHigh: mean(series("cloud_cover_high", win)),
+    cloudTotal: mean(series("cloud_cover", win)),
+    visibilityM: mean(series("visibility", win)),
+    precipProbWindow: mean(series("precipitation_probability", win)),
+    precipProbEvening: Math.max(...series("precipitation_probability", eveningHours(sunsetHour))),
+    precipWindowMm: series("precipitation", win).reduce((s, v) => s + v, 0),
     rainRecentFlag: rainRecent,
     fetchedAt: Date.now(),
+    windowLabel: `${String(win[0]).padStart(2, "0")}–${String(win[win.length - 1]).padStart(2, "0")}時`,
   };
 }
 
@@ -82,7 +100,7 @@ async function fetchOnce(url) {
   }
 }
 
-async function fetchEnsembleSpread(dateStr, lat, lon, base) {
+async function fetchEnsembleSpread(dateStr, lat, lon, base, sunsetHour) {
   const params = new URLSearchParams({
     latitude: String(lat),
     longitude: String(lon),
@@ -97,9 +115,10 @@ async function fetchEnsembleSpread(dateStr, lat, lon, base) {
     const hourly = payload.hourly;
     const hourIndex = new Map();
     hourly.time.forEach((t, i) => hourIndex.set(parseInt(t.slice(11, 13), 10), i));
+    const win = windowHours(sunsetHour);
     const windowMean = (field, model) => {
       const col = hourly[`${field}_${model}`];
-      const raw = WINDOW_HOURS.map((h) => col[hourIndex.get(h)]);
+      const raw = win.map((h) => col[hourIndex.get(h)]);
       if (raw.some((v) => v === null || v === undefined)) throw new Error("缺值");
       return mean(raw.map(Number));
     };
@@ -132,17 +151,18 @@ export async function fetchWeather(dateStr, lat, lon) {
     end_date: dateStr,
   });
   const url = `${OPEN_METEO_URL}?${params}`;
+  const sunsetHour = taipeiSunsetHour(dateStr, lat, lon);
   let lastError = "unknown";
   for (let attempt = 0; attempt <= RETRY_COUNT; attempt++) {
     try {
       const payload = await fetchOnce(url);
       let window;
       try {
-        window = parseOpenMeteo(dateStr, payload);
+        window = parseOpenMeteo(dateStr, payload, sunsetHour);
       } catch (e) {
         return insufficient(dateStr, `Open-Meteo 回應解析失敗：${e.message}`);
       }
-      const { spread, models } = await fetchEnsembleSpread(dateStr, lat, lon, window);
+      const { spread, models } = await fetchEnsembleSpread(dateStr, lat, lon, window, sunsetHour);
       return { ...window, modelSpread: spread, ensembleModels: models };
     } catch (e) {
       lastError = e.name === "AbortError" ? "timeout" : e.message;
@@ -174,6 +194,7 @@ export function demoWeather(dateStr) {
     precipProbWindow: p.precipProbEvening,
     precipWindowMm: 0,
     fetchedAt: Date.now(),
+    windowLabel: "17–19時",
     ...p,
   };
 }

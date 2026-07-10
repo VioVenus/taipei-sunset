@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# v1.2.0：評估窗口改為以「當日該點實際日落時刻」為中心動態決定（見 weather.py），
+#   跨全台緯度與四季更精準；死亡條款/雨後放晴時段一併相對化。四情境機率『分配函式』
+#   與 v1.0.0 完全相同（故 scoring parity fixtures 不變），但窗口改變會改變雲量輸入
+#   → 實際預測值改變，依紀律 bump 版本。
 # v1.1.0：新增動態不確定性區間（多模式分歧 → 區間加寬）。
-# 四情境機率分配規則與 v1.0.0 完全相同——分歧只加寬區間，不改點估。
-ENGINE_VERSION = "v1.1.0"
+ENGINE_VERSION = "v1.2.0"
 
 # ── 基礎分配 ──────────────────────────────────────────────
 LOW_CLEAR_MAX = 30.0  # low < 30 視為地平線有縫

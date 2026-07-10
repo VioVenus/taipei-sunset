@@ -1,8 +1,9 @@
 // 評分引擎 v1 —— 從 src/sunset/scoring.py 逐式移植。
 // Python 為 canonical：常數與流程不得在此單方面更動（parity 測試會擋）。
 
-// v1.1.0：動態不確定性區間（多模式分歧 → 區間加寬）；機率分配規則與 v1.0.0 相同。
-export const ENGINE_VERSION = "v1.1.0";
+// v1.2.0：評估窗口改以實際日落時刻為中心（見 weather.js）；機率分配規則與 v1.0.0 相同。
+// v1.1.0：動態不確定性區間（多模式分歧 → 區間加寬）。
+export const ENGINE_VERSION = "v1.2.0";
 
 export const LOW_CLEAR_MAX = 30.0;
 export const MID_HIGH_IDEAL_MIN = 30.0;

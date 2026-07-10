@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from sunset import solar  # noqa: E402
 from sunset.geometry import bearing_deg, distance_km  # noqa: E402
-from sunset.scoring import ScoringInput, dynamic_half_width, score  # noqa: E402
+from sunset.scoring import ENGINE_VERSION, ScoringInput, dynamic_half_width, score  # noqa: E402
 
 JIANTAN = (25.0904311, 121.5367826)
 DADAOCHENG = (25.0565135, 121.5075150)
@@ -95,7 +95,7 @@ def interval_fixtures() -> list[dict]:
 def main() -> None:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     fixtures = {
-        "engine_version": "v1.1.0",
+        "engine_version": ENGINE_VERSION,
         "solar": solar_fixtures(),
         "geometry": geometry_fixtures(),
         "scoring": scoring_fixtures(),

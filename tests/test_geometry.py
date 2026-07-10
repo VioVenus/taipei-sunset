@@ -90,8 +90,25 @@ def test_assess_obstruction_no_match():
 
 def test_load_viewpoints_seed():
     viewpoints = load_viewpoints()
-    assert set(viewpoints) == {"jiantan_laodifang", "dadaocheng_wharf"}
+    # 兩個人工實測驗證點必存在
+    assert {"jiantan_laodifang", "dadaocheng_wharf"} <= set(viewpoints)
     jt = viewpoints["jiantan_laodifang"]
     assert jt.lat == pytest.approx(25.0904311)
     assert jt.open_azimuth_range == (250.0, 320.0)
     assert jt.horizon_obstruction[0].angle_deg == 0.4
+    # 已驗證點不應標記待驗證
+    assert not jt.needs_field_verification
+    assert jt.city == "臺北市" and jt.region == "北"
+
+
+def test_draft_viewpoints_are_marked_and_have_region():
+    """全台草稿點必須標 needs_field_verification、附 city/region/coord_source，
+    且不得偽造遮蔽幾何（horizon_obstruction 留空）——尊重歷史教訓 1。"""
+    viewpoints = load_viewpoints()
+    regions = {vp.region for vp in viewpoints.values()}
+    assert {"北", "中", "南", "東", "離島"} <= regions  # 全台涵蓋
+    for vp in viewpoints.values():
+        assert vp.city and vp.region, f"{vp.id} 缺 city/region"
+        if vp.needs_field_verification:
+            assert vp.coord_source, f"{vp.id} 草稿點必須註明 coord_source"
+            assert vp.horizon_obstruction == (), f"{vp.id} 草稿點不得偽造遮蔽幾何"
