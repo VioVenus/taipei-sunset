@@ -16,13 +16,14 @@
 </head>
 <body>
   <header class="topbar">
-    <h1 id="topbar-date">— 台灣日落</h1>
+    <h1 id="topbar-date">—</h1>
     <div class="chips" id="date-chips" role="tablist" aria-label="日期選擇">
-      <button class="chip active" data-offset="0">今天</button>
-      <button class="chip" data-offset="1">明天</button>
-      <button class="chip" data-offset="2">後天</button>
-      <button class="chip" data-offset="3">+3天</button>
+      <button class="chip active" data-offset="0" data-i18n="chips.today">今天</button>
+      <button class="chip" data-offset="1" data-i18n="chips.tomorrow">明天</button>
+      <button class="chip" data-offset="2" data-i18n="chips.dayAfter">後天</button>
+      <button class="chip" data-offset="3" data-i18n="chips.plus3">+3天</button>
     </div>
+    <select id="lang-select" class="lang-select" aria-label="Language / 語言"></select>
     <button class="refresh" id="refresh-btn" aria-label="重新整理">↻</button>
   </header>
 
@@ -30,13 +31,13 @@
     <!-- 預報分頁 -->
     <section id="tab-forecast" class="tab active" aria-label="預報">
       <div id="stale-banner" class="banner warn hidden"></div>
-      <div id="preliminary-banner" class="banner warn hidden">
-        📌 初步展望・信心低，以當日 16:20 推播為準（早上的預報對午後對流幾乎無鑑別力）
-      </div>
+      <div id="preliminary-banner" class="banner warn hidden" data-i18n="banner.preliminary"></div>
+      <div class="card hidden full" id="onboard-card"></div>
       <div class="region-bar full" id="region-bar" aria-label="地區與點位選擇"></div>
       <div id="verdict-card" class="card verdict-card full skeleton" aria-live="polite"></div>
       <div class="card hidden" id="light-card" aria-live="polite"></div>
       <div class="day-strip full" id="day-strip" aria-label="三日概覽"></div>
+      <p class="footnote hidden" id="better-hint"></p>
       <div class="card" id="timeline-card"></div>
       <div class="card" id="scenario-card"></div>
       <div class="card" id="reasons-card"></div>
@@ -48,61 +49,52 @@
     <!-- 紀錄分頁 -->
     <section id="tab-log" class="tab" aria-label="紀錄">
       <div class="card full">
-        <h2 id="report-title">今晚實際結果？</h2>
+        <h2 id="report-title">—</h2>
         <p class="muted small" id="report-context"></p>
         <div class="report-grid">
-          <button class="report-btn oa" data-outcome="A">🌫 A<span>全擋沒看到</span></button>
-          <button class="report-btn ob" data-outcome="B">🌇 B<span>普通橘色</span></button>
-          <button class="report-btn oc" data-outcome="C">🔥 C<span>局部火燒雲</span></button>
-          <button class="report-btn od" data-outcome="D">🌋 D<span>全面火燒雲</span></button>
+          <button class="report-btn oa" data-outcome="A">🌫 A<span data-i18n="log.oa">全擋沒看到</span></button>
+          <button class="report-btn ob" data-outcome="B">🌇 B<span data-i18n="log.ob">普通橘色</span></button>
+          <button class="report-btn oc" data-outcome="C">🔥 C<span data-i18n="log.oc">局部火燒雲</span></button>
+          <button class="report-btn od" data-outcome="D">🌋 D<span data-i18n="log.od">全面火燒雲</span></button>
         </div>
-        <input type="text" id="report-note" placeholder="備註（選填），例：西北側有燒約10分鐘" maxlength="80" />
+        <input type="text" id="report-note" data-i18n-ph="log.notePh" placeholder="" maxlength="80" />
         <p class="footnote" id="report-status"></p>
-        <p class="muted small">
-          你的回報會成為明天「昨日有燒」加成與長期校準的資料。多人回報以多數決聚合，
-          同一人同一天只採計最新一筆（回報過可再改）。送出走 GitHub 表單，需 GitHub 帳號。
-        </p>
+        <p class="muted small" data-i18n="log.explain"></p>
       </div>
-      <div class="card" id="weekly-card"><h2>本週統計</h2><p class="muted">載入中…</p></div>
-      <div class="card" id="history-card"><h2>歷史紀錄</h2><p class="muted">載入中…</p></div>
+      <div class="card" id="weekly-card"></div>
+      <div class="card" id="history-card"></div>
     </section>
 
     <!-- 設定分頁 -->
     <section id="tab-settings" class="tab" aria-label="設定">
       <div class="card">
-        <h2>📲 加入主畫面（當 app 用）</h2>
+        <h2 data-i18n="settings.installTitle"></h2>
         <ul class="status-list">
-          <li><b>iPhone</b>：Safari 開本頁 → 分享 <span aria-hidden="true">⎋</span> → 「加入主畫面」</li>
-          <li><b>Android</b>：Chrome 開本頁 → 選單 ⋮ → 「安裝應用程式」</li>
-          <li>安裝後離線也能看太陽時間表；天氣需連線</li>
+          <li data-i18n-html="settings.installIos"></li>
+          <li data-i18n-html="settings.installAndroid"></li>
+          <li data-i18n="settings.installOffline"></li>
         </ul>
       </div>
       <div class="card">
-        <h2>資料狀態</h2>
+        <h2 data-i18n="settings.statusTitle"></h2>
         <ul class="status-list" id="status-list"></ul>
       </div>
       <div class="card">
-        <h2>關於</h2>
+        <h2 data-i18n="settings.aboutTitle"></h2>
         <p class="muted small" id="about-text"></p>
-        <p class="muted small">
-          每日 16:20 推播與資料排程由 GitHub Actions 執行（通道與金鑰由維護者在
-          GitHub Secrets 設定，不在本頁）。本 app 為查詢、回報與回顧介面。
-          機率一律為區間，禁止假精確。
-        </p>
+        <p class="muted small" data-i18n="settings.aboutPara"></p>
+        <p class="footnote" data-i18n="settings.copyright"></p>
       </div>
       <!-- 維護者卡：預設隱藏（連點上方版本文字 7 下開啟）。這是介面整理，不是保密機制——
            token 只存訪客自己的 localStorage，真正的機密只活在 GitHub Secrets。 -->
       <div class="card hidden" id="maint-card">
-        <h2>🔧 維護者：GitHub 一鍵回報</h2>
-        <p class="muted small">
-          fine-grained token（只勾本 repo 的 Actions: Read and write），存在此裝置
-          localStorage。設定後「紀錄」頁回報改為直接觸發 workflow，不經表單。
-        </p>
+        <h2 data-i18n="settings.maintTitle"></h2>
+        <p class="muted small" data-i18n="settings.maintDesc"></p>
         <input type="password" id="gh-token" placeholder="github_pat_…" autocomplete="off" />
         <div class="row">
-          <button class="btn" id="save-token">儲存</button>
-          <button class="btn ghost" id="test-token">測試連線</button>
-          <button class="btn ghost" id="exit-maint">離開維護者模式</button>
+          <button class="btn" id="save-token" data-i18n="settings.save"></button>
+          <button class="btn ghost" id="test-token" data-i18n="settings.test"></button>
+          <button class="btn ghost" id="exit-maint" data-i18n="settings.exitMaint"></button>
         </div>
         <p class="footnote" id="token-status"></p>
       </div>
@@ -110,9 +102,9 @@
   </main>
 
   <nav class="bottom-nav" aria-label="主導覽">
-    <button class="nav-btn active" data-tab="forecast">🌇<span>預報</span></button>
-    <button class="nav-btn" data-tab="log">📝<span>紀錄</span></button>
-    <button class="nav-btn" data-tab="settings">⚙️<span>設定</span></button>
+    <button class="nav-btn active" data-tab="forecast">🌇<span data-i18n="nav.forecast">預報</span></button>
+    <button class="nav-btn" data-tab="log">📝<span data-i18n="nav.log">紀錄</span></button>
+    <button class="nav-btn" data-tab="settings">⚙️<span data-i18n="nav.settings">設定</span></button>
   </nav>
 
   <script type="module" src="js/app.js"></script>

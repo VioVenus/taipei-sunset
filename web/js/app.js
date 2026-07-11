@@ -15,7 +15,8 @@ import {
   testToken,
 } from "./github.js";
 import { TAIPEI_UTC_OFFSET_H } from "./solar.js";
-import { lightPhase, untilStr } from "./light.js";
+import { lightPhase, minutesUntil, PHASE_EMOJI } from "./light.js";
+import { applyStatic, getLang, LANGS, setLang, t } from "./i18n.js";
 
 const QS = new URLSearchParams(location.search);
 const DEMO = QS.has("demo");
@@ -52,6 +53,14 @@ const state = {
 const vpsInRegion = (region) => state.viewpoints.filter((v) => v.region === region);
 const findVp = (id) => state.viewpoints.find((v) => v.id === id);
 const availableRegions = () => REGIONS.filter((r) => state.viewpoints.some((v) => v.region === r));
+
+// 判定值（出發/跳過/資料不足）是引擎與日誌的內部常數（中文 canonical），
+// 只在「顯示」時翻譯——比較邏輯永遠用常數本身。
+function verdictLabel(verdict) {
+  if (verdict === VERDICT_GO) return t("verdict.go");
+  if (verdict === VERDICT_NO_DATA) return t("verdict.nodata");
+  return t("verdict.skip");
+}
 
 // ── 資料載入 ─────────────────────────────────────────────
 async function loadViewpoints() {
@@ -102,7 +111,7 @@ async function runAnalysis({ fresh = false } = {}) {
   renderRegionBar();
   const card = $("verdict-card");
   card.classList.add("skeleton");
-  card.innerHTML = `<p class="muted small">取得 Open-Meteo 天氣資料中…（逾時會自動降級）</p>`;
+  card.innerHTML = `<p class="muted small">${esc(t("common.loading"))}</p>`;
   // 全台各點位置不同，天氣須逐點擷取（同地區點數不多，快取後切換零成本）。
   const active = vpsInRegion(state.region);
   const weathers = await Promise.all(active.map((vp) => getWeather(dateStr, vp, { fresh })));
@@ -123,17 +132,18 @@ async function runAnalysis({ fresh = false } = {}) {
 
 // ── 白話摘要（新手可讀，from 主導理由）──────────────────
 function plainSummary(result) {
-  if (!result.probs) return "拿不到天氣資料，僅顯示太陽時間表。";
+  if (!result.probs) return t("summary.noData");
+  // 引擎理由字串是中文 canonical——這裡只做關鍵詞判斷選 i18n 句，不翻譯理由本身
   const r = result.probs.reasons.join("");
-  if (r.includes("死亡條款")) return "低雲或降雨會全面遮擋，今晚基本上看不到。";
+  if (r.includes("死亡條款")) return t("summary.death");
   const go = result.verdict === VERDICT_GO; // 行動建議跟著判定走，不與「跳過」自相矛盾
   let s;
-  if (r.includes("理想帶")) s = `雲況在理想帶：低雲有縫、中高雲有燃料${go ? "，值得出門" : ""}。`;
-  else if (r.includes("太乾淨")) s = "天空太乾淨，多半只是普通橘色夕陽。";
-  else if (r.includes("太厚")) s = "中高雲偏厚，夕陽光不一定穿得透。";
-  else s = go ? "雲況中性，照機率決定。" : "雲況中性偏保守，這晚可以跳過。";
-  if (r.includes("低雲干擾")) s += "但低雲偏多是最大變數。";
-  if (r.includes("雨後放晴")) s += "雨後放晴是加分項。";
+  if (r.includes("理想帶")) s = go ? t("summary.idealGo") : t("summary.ideal");
+  else if (r.includes("太乾淨")) s = t("summary.tooClean");
+  else if (r.includes("太厚")) s = t("summary.tooThick");
+  else s = go ? t("summary.neutralGo") : t("summary.neutralSkip");
+  if (r.includes("低雲干擾")) s += t("summary.lowCloud");
+  if (r.includes("雨後放晴")) s += t("summary.rainClear");
   return s;
 }
 
@@ -149,7 +159,7 @@ function countdownHtml(result) {
   const now = nowMs();
   if (now >= result.sun.sunsetMs) return "";
   const mins = Math.round((result.sun.sunsetMs - now) / 60000);
-  const cd = `距日落 <b>${Math.floor(mins / 60)} 小時 ${String(mins % 60).padStart(2, "0")} 分</b>`;
+  const cd = t("countdown.toSunset", { h: Math.floor(mins / 60), m: String(mins % 60).padStart(2, "0") });
   // 出發建議只在判定「出發」時給——跳過日還叫人幾點出門是自相矛盾
   let dep = "";
   if (result.verdict === VERDICT_GO) {
@@ -158,8 +168,8 @@ function countdownHtml(result) {
       const leaveBy = result.sun.goldenStartMs - access * 60000;
       dep =
         now <= leaveBy
-          ? `建議 <b>${hhmm(leaveBy)}</b> 前出發（路程約 ${access} 分，趕上黃金時段）`
-          : `現在出發約 <b>${hhmm(now + access * 60000)}</b> 抵達`;
+          ? t("countdown.leaveBy", { time: hhmm(leaveBy), mins: access })
+          : t("countdown.arriveAt", { time: hhmm(now + access * 60000) });
     }
   }
   return `<div class="countdown-row"><span>${cd}</span>${dep ? `<span>${dep}</span>` : ""}</div>`;
@@ -215,7 +225,7 @@ function rangeBarHtml(point, halfWidth) {
 
 function renderForecast() {
   const dateStr = taipeiDatePlus(state.offset);
-  $("topbar-date").textContent = `${dateLabel(dateStr)} 日落`;
+  $("topbar-date").textContent = `${dateLabel(dateStr)} ${t("sunsetWord")}`;
 
   const main =
     state.results.find((r) => r.viewpoint.id === state.selectedVpId) ??
@@ -226,7 +236,7 @@ function renderForecast() {
   $("preliminary-banner").classList.toggle("hidden", !main.preliminary);
   const staleBanner = $("stale-banner");
   if (state.weatherStale) {
-    staleBanner.textContent = `⚠️ 離線快取資料（${hhmm(state.lastFetchMs)} 取得），僅供參考`;
+    staleBanner.textContent = t("banner.stale", { time: hhmm(state.lastFetchMs) });
     staleBanner.classList.remove("hidden");
   } else staleBanner.classList.add("hidden");
   card.classList.toggle("preliminary", main.preliminary);
@@ -240,15 +250,15 @@ function renderForecast() {
   const isRegionBest = state.recommended && main.viewpoint.id === state.recommended.viewpoint.id;
   let vpLine;
   if (main.verdict === VERDICT_GO) {
-    vpLine = `推薦 ${vpName}${vpCity}`;
+    vpLine = `${esc(t("vp.recommend", { name: main.viewpoint.name }))}${vpCity}`;
   } else if (main.verdict === VERDICT_NO_DATA) {
     vpLine = `${vpName}${vpCity}`;
   } else {
-    vpLine = `${vpName}${vpCity}<span class="vp-note">${isRegionBest ? "· 本區今晚各點都不理想" : "· 今晚此點不理想"}</span>`;
+    vpLine = `${vpName}${vpCity}<span class="vp-note">${esc(t(isRegionBest ? "vp.notIdealRegion" : "vp.notIdealHere"))}</span>`;
   }
   card.innerHTML = `
     <div class="verdict-head">
-      <span class="verdict-word ${vClass}">${esc(main.verdict)}</span>
+      <span class="verdict-word ${vClass}">${esc(verdictLabel(main.verdict))}</span>
       <span class="verdict-vp">${vpLine}</span>
     </div>
     <p class="plain-summary">${esc(plainSummary(main))}</p>
@@ -256,35 +266,36 @@ function renderForecast() {
     ${p ? `
     <div class="summary-row">
       <div class="summary-item">
-        <div class="summary-label">火燒雲（C+D）${hw > 10 ? `<span class="hw-tag">±${hw.toFixed(0)}</span>` : ""}</div>
+        <div class="summary-label">${esc(t("labels.burn"))}${hw > 10 ? `<span class="hw-tag">±${hw.toFixed(0)}</span>` : ""}</div>
         <div class="summary-value">${intervalStr(p.burnLevel, hw)}</div>
         ${rangeBarHtml(p.burnLevel, hw)}
       </div>
       <div class="summary-item">
-        <div class="summary-label">看得到日落（B+C+D）</div>
+        <div class="summary-label">${esc(t("labels.visible"))}</div>
         <div class="summary-value">${intervalStr(p.sunsetVisible, hw)}</div>
         ${rangeBarHtml(p.sunsetVisible, hw)}
       </div>
     </div>` : `
-    <div class="row"><button class="btn" id="retry-btn">重試</button></div>
-    <p class="footnote" style="margin-top:8px">${esc(main.weather?.error || "取得失敗")}</p>`}
+    <div class="row"><button class="btn" id="retry-btn">${esc(t("labels.retry"))}</button></div>
+    <p class="footnote" style="margin-top:8px">${esc(main.weather?.error || t("labels.fetchFail"))}</p>`}
     ${main.viewpoint.weather_exclusion ? `<p class="footnote" style="margin-top:10px">⚠️ ${esc(main.viewpoint.weather_exclusion)}</p>` : ""}
     <div class="row action-row">
       <a class="btn ghost" target="_blank" rel="noopener"
-         href="https://www.google.com/maps/search/?api=1&query=${main.viewpoint.lat},${main.viewpoint.lon}">🧭 導航到${esc(main.viewpoint.name)}</a>
-      <button class="btn ghost" id="share-btn">📤 分享判定</button>
+         href="https://www.google.com/maps/search/?api=1&query=${main.viewpoint.lat},${main.viewpoint.lon}">${esc(t("actions.navigate", { name: main.viewpoint.name }))}</a>
+      <button class="btn ghost" id="share-btn">${esc(t("actions.share"))}</button>
     </div>
   `;
   card.querySelector("#retry-btn")?.addEventListener("click", () => runAnalysis({ fresh: true }));
   card.querySelector("#share-btn")?.addEventListener("click", async () => {
-    const text = `${dateLabel(dateStr)} 日落判定：${main.verdict}・${main.viewpoint.name}${main.viewpoint.city ? `（${main.viewpoint.city}）` : ""}\n` +
-      (p ? `火燒雲 ${intervalStr(p.burnLevel, hw)}｜日落 ${hhmm(main.sun.sunsetMs)}\n` : "") +
+    const nameCity = main.viewpoint.city ? `${main.viewpoint.name}（${main.viewpoint.city}）` : main.viewpoint.name;
+    const text = t("share.line1", { date: dateLabel(dateStr), verdict: verdictLabel(main.verdict), name: nameCity }) + "\n" +
+      (p ? t("share.line2", { interval: intervalStr(p.burnLevel, hw), time: hhmm(main.sun.sunsetMs) }) + "\n" : "") +
       location.href;
     try {
       if (navigator.share) await navigator.share({ text });
       else {
         await navigator.clipboard.writeText(text);
-        $("data-footnote").textContent = "已複製到剪貼簿";
+        $("data-footnote").textContent = t("actions.copied");
       }
     } catch { /* 使用者取消 */ }
   });
@@ -294,61 +305,66 @@ function renderForecast() {
   // 時間軸 + 羅盤（太陽幾何永遠可用）
   const s = main.sun;
   const items = [
-    [s.goldenStartMs, "黃金起"],
-    ...(main.obstruction.matched ? [[main.effectiveSunsetMs, "有效沒入"]] : []),
-    [s.sunsetMs, "日落"],
-    [s.civilTwilightEndMs, "藍調終"],
+    [s.goldenStartMs, t("timeline.golden"), false],
+    ...(main.obstruction.matched ? [[main.effectiveSunsetMs, t("timeline.effective"), true]] : []),
+    [s.sunsetMs, t("timeline.sunset"), false],
+    [s.civilTwilightEndMs, t("timeline.blueEnd"), false],
   ];
   $("timeline-card").innerHTML = `
-    <h2>太陽時間軸</h2>
+    <h2>${esc(t("timeline.title"))}</h2>
     <div class="timeline">
-      ${items.map(([ms, label]) => `
-        <div class="tl-item ${label === "有效沒入" ? "dim" : ""}">
-          <div class="tl-time">${hhmm(ms)}</div><div class="tl-label">${label}</div>
+      ${items.map(([ms, label, dim]) => `
+        <div class="tl-item ${dim ? "dim" : ""}">
+          <div class="tl-time">${hhmm(ms)}</div><div class="tl-label">${esc(label)}</div>
         </div>`).join("")}
     </div>
     <div class="compass-row">
       ${compassSvg(main)}
       <div class="compass-note">
-        日落方位 <b>${s.sunsetAzimuthDeg.toFixed(1)}°</b>（橘針）<br>
-        橘扇形＝開闊視線 ${main.viewpoint.open_azimuth_range[0]}–${main.viewpoint.open_azimuth_range[1]}°，紅斑＝建檔遮蔽<br>
+        ${t("timeline.azimuth", { az: s.sunsetAzimuthDeg.toFixed(1) })}<br>
+        ${esc(t("timeline.sector", { a: main.viewpoint.open_azimuth_range[0], b: main.viewpoint.open_azimuth_range[1] }))}<br>
         ${esc(main.alignment.message)}
       </div>
     </div>
-    ${main.obstruction.matched ? `<p class="footnote" style="margin-top:8px">遮蔽：${esc(main.obstruction.note)}（仰角 ${main.obstruction.angleDeg.toFixed(1)}° → 提前 ${main.obstruction.earlyMinutes.toFixed(0)} 分鐘沒入）</p>` : ""}
+    ${main.obstruction.matched ? `<p class="footnote" style="margin-top:8px">${esc(t("timeline.obstruction", { note: main.obstruction.note, deg: main.obstruction.angleDeg.toFixed(1), mins: main.obstruction.earlyMinutes.toFixed(0) }))}</p>` : ""}
   `;
 
   // 情境條 + 說明
   if (p) {
     const seg = (cls, v, letter) =>
       `<i class="${cls}" style="flex:${v.toFixed(2)}" >${v >= 8 ? letter : ""}</i>`;
+    // 引擎理由是中文 canonical：非中文介面收合為「中文明細」，摘要已在上方 i18n 化
+    const zhReasons = `<ul class="reasons">${p.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>`;
+    const spreadNote =
+      main.weather?.modelSpread !== null && main.weather?.modelSpread !== undefined && hw > 10
+        ? `<li>${esc(t("scenario.spreadNote", { spread: main.weather.modelSpread.toFixed(0), models: main.weather.ensembleModels, hw: hw.toFixed(0) }))}</li>`
+        : "";
     $("scenario-card").innerHTML = `
-      <h2>四情境機率</h2>
-      <div class="stack-bar" role="img" aria-label="A ${intervalStr(p.a)}，B ${intervalStr(p.b)}，C ${intervalStr(p.c)}，D ${intervalStr(p.d)}">
+      <h2>${esc(t("scenario.title"))}</h2>
+      <div class="stack-bar" role="img" aria-label="A ${intervalStr(p.a)}, B ${intervalStr(p.b)}, C ${intervalStr(p.c)}, D ${intervalStr(p.d)}">
         ${seg("sa", p.a, "A")}${seg("sb", p.b, "B")}${seg("sc", p.c, "C")}${seg("sd", p.d, "D")}
       </div>
       <div class="scenario-legend">
-        <span><i class="dot sa"></i>A 擋光 ${intervalStr(p.a, hw)}</span>
-        <span><i class="dot sb"></i>B 普通 ${intervalStr(p.b, hw)}</span>
-        <span><i class="dot sc"></i>C 局部燒 ${intervalStr(p.c, hw)}</span>
-        <span><i class="dot sd"></i>D 全面燒 ${intervalStr(p.d, hw)}</span>
+        <span><i class="dot sa"></i>${esc(t("scenario.a"))} ${intervalStr(p.a, hw)}</span>
+        <span><i class="dot sb"></i>${esc(t("scenario.b"))} ${intervalStr(p.b, hw)}</span>
+        <span><i class="dot sc"></i>${esc(t("scenario.c"))} ${intervalStr(p.c, hw)}</span>
+        <span><i class="dot sd"></i>${esc(t("scenario.d"))} ${intervalStr(p.d, hw)}</span>
       </div>
       <details class="help">
-        <summary>什麼是 A／B／C／D？</summary>
+        <summary>${esc(t("scenario.helpTitle"))}</summary>
         <ul>
-          <li><b>A 擋光</b>：低雲或降雨全面遮擋，什麼都看不到。</li>
-          <li><b>B 普通</b>：看得到太陽下山，普通橘色夕陽，無戲劇性。</li>
-          <li><b>C 局部燒</b>：部分天空被日落點燃（值得出門的門檻）。</li>
-          <li><b>D 全面燒</b>：整片天空燒起來（一年數次等級）。</li>
+          <li>${t("scenario.helpA")}</li>
+          <li>${t("scenario.helpB")}</li>
+          <li>${t("scenario.helpC")}</li>
+          <li>${t("scenario.helpD")}</li>
         </ul>
-        <p class="muted">機率一律顯示 ±10 百分點區間——預測本來就有不確定性，單點數字是假精確。</p>
+        <p class="muted">${esc(t("scenario.interval"))}</p>
       </details>`;
-    const spreadNote =
-      main.weather?.modelSpread !== null && main.weather?.modelSpread !== undefined && hw > 10
-        ? `<li>多模式雲量分歧 ${main.weather.modelSpread.toFixed(0)}%（${esc(main.weather.ensembleModels)}）→ 區間加寬至 ±${hw.toFixed(0)}</li>`
-        : "";
-    $("reasons-card").innerHTML = `<h2>理由</h2>
-      <ul class="reasons">${p.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}${spreadNote}</ul>`;
+    $("reasons-card").innerHTML = `<h2>${esc(t("scenario.reasonsTitle"))}</h2>` +
+      (getLang() === "zh"
+        ? `<ul class="reasons">${p.reasons.map((r) => `<li>${esc(r)}</li>`).join("")}${spreadNote}</ul>`
+        : `${spreadNote ? `<ul class="reasons">${spreadNote}</ul>` : ""}
+           <details class="help"><summary>${esc(t("scenario.reasonsZhNote"))}</summary>${zhReasons}</details>`);
     $("scenario-card").classList.remove("hidden");
     $("reasons-card").classList.remove("hidden");
   } else {
@@ -358,16 +374,16 @@ function renderForecast() {
 
   // 其他點位
   const others = state.results.filter((r) => r.viewpoint.id !== main.viewpoint.id);
-  $("others-card").innerHTML = (others.length ? `<h2>同區其他點位</h2>` : "") + others.map((r) => `
+  $("others-card").innerHTML = (others.length ? `<h2>${esc(t("others.title"))}</h2>` : "") + others.map((r) => `
     <button class="other-vp" data-vp="${esc(r.viewpoint.id)}" aria-expanded="${state.expandedVp === r.viewpoint.id}">
       <span>${esc(r.viewpoint.name)}<br><span class="muted small">${esc(r.viewpoint.access || "")}</span></span>
-      <span>${r.probs ? `火燒雲 ${intervalStr(r.probs.burnLevel, r.intervalHalfWidth)}` : "資料不足"}・${esc(r.verdict)}</span>
+      <span>${r.probs ? esc(t("others.burnShort", { interval: intervalStr(r.probs.burnLevel, r.intervalHalfWidth) })) : esc(t("others.nodata"))}・${esc(verdictLabel(r.verdict))}</span>
     </button>
     ${state.expandedVp === r.viewpoint.id && r.probs ? `
       <ul class="reasons small" style="padding:0 0 10px">
-        <li>日落 ${hhmm(r.sun.sunsetMs)}｜有效沒入 ${hhmm(r.effectiveSunsetMs)}｜藍調至 ${hhmm(r.sun.civilTwilightEndMs)}</li>
+        <li>${esc(t("timeline.sunset"))} ${hhmm(r.sun.sunsetMs)}｜${esc(t("timeline.effective"))} ${hhmm(r.effectiveSunsetMs)}｜${esc(t("timeline.blueEnd"))} ${hhmm(r.sun.civilTwilightEndMs)}</li>
         <li>${esc(r.alignment.message)}</li>
-        ${r.obstruction.matched ? `<li>遮蔽：${esc(r.obstruction.note)}</li>` : ""}
+        ${r.obstruction.matched ? `<li>${esc(r.obstruction.note)}</li>` : ""}
       </ul>` : ""}
   `).join("");
   $("others-card").querySelectorAll(".other-vp").forEach((btn) =>
@@ -380,7 +396,7 @@ function renderForecast() {
   renderChecklist(main);
 
   $("data-footnote").textContent = p
-    ? `資料：${main.weather.source}・${hhmm(state.lastFetchMs)} 取得｜評分引擎 ${p.engineVersion}${DEMO ? "｜⚠️ DEMO 模式（擬真資料）" : ""}`
+    ? t("common.dataLine", { src: main.weather.source, time: hhmm(state.lastFetchMs), ver: p.engineVersion }) + (DEMO ? t("common.demoTag") : "")
     : "";
 }
 
@@ -393,25 +409,28 @@ function renderLightCard(main) {
     return;
   }
   const now = nowMs();
-  const { phase, untilMs, progress } = lightPhase(main.sun, now);
+  const { key, untilMs, progress } = lightPhase(main.sun, now);
   // 餘燼窗口是本卡存在的理由：正在燒的機率高峰，最怕使用者日落一到就走
-  const hot = phase.key === "afterglow";
-  const nextLabel = { day: "黃金時段", golden: "日落", afterglow: "藍調結束" }[phase.key];
+  const hot = key === "afterglow";
+  const mins = untilMs ? minutesUntil(untilMs, now) : 0;
+  const dur = mins >= 60
+    ? t("common.hm", { h: Math.floor(mins / 60), m: String(mins % 60).padStart(2, "0") })
+    : t("common.m", { m: mins });
   card.classList.remove("hidden");
   card.classList.toggle("light-hot", hot);
   card.innerHTML = `
     <div class="light-head">
-      <span class="light-emoji" aria-hidden="true">${phase.emoji}</span>
+      <span class="light-emoji" aria-hidden="true">${PHASE_EMOJI[key]}</span>
       <div>
-        <div class="light-name">現在：${phase.name}</div>
-        <div class="light-heading ${hot ? "hot" : "muted"}">${esc(phase.heading)}</div>
+        <div class="light-name">${esc(t("light.now", { name: t(`light.${key}.name`) }))}</div>
+        <div class="light-heading ${hot ? "hot" : "muted"}">${esc(t(`light.${key}.heading`))}</div>
       </div>
-      ${untilMs ? `<span class="light-until muted small">距${nextLabel}<br><b>${untilStr(untilMs, now)}</b></span>` : ""}
+      ${untilMs ? `<span class="light-until muted small">${esc(t("light.untilNext", { next: t(`light.${key}.next`) }))}<br><b>${esc(dur)}</b></span>` : ""}
     </div>
     ${progress !== null ? `<div class="range-bar light-bar"><i style="left:0;width:${(progress * 100).toFixed(0)}%"></i></div>` : ""}
     <details class="help"${hot ? " open" : ""}>
-      <summary>📸 這個時段怎麼拍／怎麼做</summary>
-      <ul>${phase.tips.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+      <summary>${esc(t("light.tipsTitle"))}</summary>
+      <ul>${t(`light.${key}.tips`).map((tip) => `<li>${esc(tip)}</li>`).join("")}</ul>
     </details>`;
 }
 
@@ -423,17 +442,17 @@ function camFacade(c) {
   const cid = YT_ID_RE.test(c.channel_id || "") ? c.channel_id : "";
   if (!id && !cid) return "";
   const thumb = id ? `https://i.ytimg.com/vi/${id}/hqdefault.jpg` : "";
-  const badge = c.verified === false ? "即時直播・連結待驗證" : "即時直播";
+  const badge = c.verified === false ? t("checklist.liveUnverified") : t("checklist.live");
   return `
     <figure class="cam" data-yt="${esc(id)}" data-channel="${esc(cid)}">
-      <button class="cam-play" type="button" aria-label="播放 ${esc(c.name)} 即時影像">
+      <button class="cam-play" type="button" aria-label="${esc(t("checklist.playAria", { name: c.name }))}">
         ${thumb ? `<img class="cam-thumb" loading="lazy" src="${thumb}" alt="">` : `<span class="cam-thumb cam-thumb-blank"></span>`}
         <span class="cam-play-icon" aria-hidden="true">▶</span>
         <span class="cam-badge">${esc(badge)}</span>
       </button>
       <figcaption>${esc(c.name)}<br>
         <span class="muted small">${esc(c.looks || "")}</span>
-        ${c.url ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">在 YouTube 開啟</a>` : ""}
+        ${c.url ? ` · <a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(t("checklist.openYt"))}</a>` : ""}
       </figcaption>
     </figure>`;
 }
@@ -459,18 +478,22 @@ async function renderChecklist(main) {
     .join("");
   const pageCams = allCams
     .filter((c) => c.type !== "youtube" && (!c.viewpoint_id || c.viewpoint_id === vpId))
-    .map((c) => `<a class="btn ghost check-link" target="_blank" rel="noopener" href="${esc(c.url)}">📷 ${esc(c.name)}${c.verified === false ? "（待驗證）" : ""}</a>`)
+    .map((c) => `<a class="btn ghost check-link" target="_blank" rel="noopener" href="${esc(c.url)}">📷 ${esc(c.name)}${c.verified === false ? esc(t("checklist.unverified")) : ""}</a>`)
     .join("");
   // 跳過日不談「出發」——即時影像變成「不出門也能看」的備案，也能抓預測失誤
   const going = main.verdict === VERDICT_GO;
+  // 能見度：低能見度（霧霾）會吃掉色彩層次，是攝影者關心卻常被忽略的變數
+  const visKm = main.weather?.visibilityM ? main.weather.visibilityM / 1000 : null;
+  const visLine = visKm !== null
+    ? `<li>${esc(t("checklist.visibility", { km: visKm.toFixed(0), warn: visKm < 10 ? t("checklist.visibilityWarn") : "" }))}</li>`
+    : "";
   card.innerHTML = `
-    <h2>${going ? "出發前 60 秒確認" : "不出門也能看：遠端看西天"}</h2>
-    <p class="muted small">${going
-      ? "預測給機率，眼睛做最後確認——這一步取代「16:30 抬頭看西天」。"
-      : "判定保守但天空偶爾會給驚喜——用即時影像瞄一眼西天，真的燒起來再衝也來得及。"}</p>
+    <h2>${esc(t(going ? "checklist.goTitle" : "checklist.skipTitle"))}</h2>
+    <p class="muted small">${esc(t(going ? "checklist.goIntro" : "checklist.skipIntro"))}</p>
     <ol class="reasons small">
-      <li>雷達：有無回波正在移入（對流殘留）</li>
-      <li>即時影像：西邊天空低雲是否比預報厚</li>
+      <li>${esc(t("checklist.step1"))}</li>
+      <li>${esc(t("checklist.step2"))}</li>
+      ${visLine}
     </ol>
     ${facades ? `<div class="cam-grid">${facades}</div>` : ""}
     <div class="row" style="flex-wrap:wrap">${links}${pageCams}</div>`;
@@ -495,7 +518,7 @@ async function renderChecklist(main) {
 // ── 三日概覽條（選定點位跨三日；點擊切換日期）────────────
 async function renderDayStrip() {
   const strip = $("day-strip");
-  const labels = ["今天", "明天", "後天"];
+  const labels = [t("chips.today"), t("chips.tomorrow"), t("chips.dayAfter")];
   const mvp = findVp(state.selectedVpId) ?? vpsInRegion(state.region)[0] ?? state.viewpoints[0];
   if (!mvp) { strip.innerHTML = ""; return; }
   const cells = [];
@@ -505,16 +528,33 @@ async function renderDayStrip() {
     const res = analyze(dateStr, mvp, weather, nowMs());
     cells.push({ off, dateStr, res });
   }
+  // 三日最佳日標 🌟（參考 Alpenglow 的多日展望：把「哪天值得」變成一眼可見）
+  const scored = cells.filter((c) => c.res?.probs);
+  const best = scored.length
+    ? scored.reduce((a, b) => (b.res.probs.burnLevel > a.res.probs.burnLevel ? b : a))
+    : null;
   strip.innerHTML = cells.map(({ off, dateStr, res }) => `
     <button class="day-chip ${state.offset === off ? "active" : ""}" data-offset="${off}"
             aria-pressed="${state.offset === off}">
-      <span class="d-label">${labels[off]} ${dateStr.slice(5).replace("-", "/")}</span>
+      <span class="d-label">${best && best.off === off && scored.length > 1 ? "🌟 " : ""}${esc(labels[off])} ${dateStr.slice(5).replace("-", "/")}</span>
       <span class="d-value">${res?.probs ? `🔥 ${intervalStr(res.probs.burnLevel, res.intervalHalfWidth)}` : "—"}</span>
-      <span class="d-verdict ${res?.verdict === VERDICT_GO ? "go" : "skip"}">${res ? esc(res.verdict) : "資料不足"}</span>
+      <span class="d-verdict ${res?.verdict === VERDICT_GO ? "go" : "skip"}">${res ? esc(verdictLabel(res.verdict)) : esc(t("verdict.nodata"))}</span>
     </button>`).join("");
   strip.querySelectorAll(".day-chip").forEach((btn) =>
     btn.addEventListener("click", () => setOffset(Number(btn.dataset.offset))),
   );
+  // 「明晚更好」導流：今天跳過、明天明顯較佳時，把使用者留在產品循環裡
+  const hint = $("better-hint");
+  const today = cells[0]?.res;
+  const tmrw = cells[1]?.res;
+  const better =
+    state.offset === 0 &&
+    today && today.verdict !== VERDICT_GO && tmrw?.probs &&
+    (tmrw.probs.burnLevel - (today.probs?.burnLevel ?? 0)) >= 10;
+  if (better) {
+    hint.textContent = t("strip.betterHint", { interval: intervalStr(tmrw.probs.burnLevel, tmrw.intervalHalfWidth) });
+    hint.classList.remove("hidden");
+  } else hint.classList.add("hidden");
 }
 
 // ── 地區分頁 + 點位選擇 + 定位找最近 ─────────────────────
@@ -522,7 +562,7 @@ function renderRegionBar() {
   const bar = $("region-bar");
   if (!bar) return;
   const tabs = availableRegions()
-    .map((r) => `<button class="region-tab ${r === state.region ? "active" : ""}" data-region="${r}" aria-pressed="${r === state.region}">${r}</button>`)
+    .map((r) => `<button class="region-tab ${r === state.region ? "active" : ""}" data-region="${r}" aria-pressed="${r === state.region}">${esc(t(`region.${r}`))}</button>`)
     .join("");
   const bestId = state.recommended?.viewpoint.id;
   const chips = vpsInRegion(state.region)
@@ -536,7 +576,7 @@ function renderRegionBar() {
   bar.innerHTML = `
     <div class="region-row">
       <div class="region-tabs" role="tablist" aria-label="地區">${tabs}</div>
-      <button class="btn ghost locate-btn" id="locate-btn" aria-label="用定位找最近的觀景點">📍 最近</button>
+      <button class="btn ghost locate-btn" id="locate-btn">${esc(t("locate.btn"))}</button>
     </div>
     <div class="vp-chips" role="tablist" aria-label="點位">${chips}</div>`;
   bar.querySelectorAll(".region-tab").forEach((btn) =>
@@ -569,12 +609,12 @@ function selectViewpoint(id) {
 function locateNearest() {
   const btn = $("locate-btn");
   if (!navigator.geolocation) {
-    $("data-footnote").textContent = "此裝置不支援定位；請用地區分頁手動選";
+    $("data-footnote").textContent = t("locate.noGeo");
     return;
   }
   btn.disabled = true;
   const orig = btn.textContent;
-  btn.textContent = "定位中…";
+  btn.textContent = t("locate.ing");
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       const { latitude, longitude } = pos.coords;
@@ -591,14 +631,14 @@ function locateNearest() {
         state.selectedVpId = best.id;
         state.expandedVp = null;
         persistSelection();
-        $("data-footnote").textContent = `最近點位：${best.name}（約 ${bestKm.toFixed(0)} km）`;
+        $("data-footnote").textContent = t("locate.found", { name: best.name, km: bestKm.toFixed(0) });
         runAnalysis();
       }
     },
     () => {
       btn.disabled = false;
       btn.textContent = orig;
-      $("data-footnote").textContent = "定位失敗或被拒；請用地區分頁手動選";
+      $("data-footnote").textContent = t("locate.fail");
     },
     { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 },
   );
@@ -617,7 +657,7 @@ const MY_REPORT_KEY = "sunset.myreport."; // + date → outcome（本機記憶�
 
 async function renderLog() {
   const today = taipeiDatePlus(0);
-  $("report-title").textContent = `今晚 ${dateLabel(today)} 實際結果？`;
+  $("report-title").textContent = t("log.title", { date: dateLabel(today) });
 
   // 回報脈絡：今天的判定＋預測區間（有載入才顯示），讓回報者知道在對答案什麼
   const todayRes =
@@ -627,26 +667,32 @@ async function renderLog() {
   const mine = localStorage.getItem(MY_REPORT_KEY + today);
   const ctx = [];
   if (todayRes?.probs) {
-    ctx.push(
-      `今天預測（${esc(todayRes.viewpoint.name)}）：${esc(todayRes.verdict)}・火燒雲 ${intervalStr(todayRes.probs.burnLevel, todayRes.intervalHalfWidth)}`,
-    );
+    ctx.push(esc(t("log.context", {
+      name: todayRes.viewpoint.name,
+      verdict: verdictLabel(todayRes.verdict),
+      interval: intervalStr(todayRes.probs.burnLevel, todayRes.intervalHalfWidth),
+    })));
   }
-  if (mine) ctx.push(`✅ 你今天已回報：<b>${esc(mine)}</b>（可再按其他鍵修改，只採計最新一筆）`);
+  if (mine) ctx.push(t("log.mine", { outcome: esc(mine) }));
   $("report-context").innerHTML = ctx.join("<br>");
+
+  // 立即給 loading 骨架——日誌走網路（4s 逾時＋本地退回），空白卡片像壞掉
+  $("weekly-card").innerHTML = `<h2>${esc(t("log.weeklyTitle"))}</h2><p class="muted small">…</p>`;
+  $("history-card").innerHTML = `<h2>${esc(t("log.histTitle"))}</h2><p class="muted small">…</p>`;
 
   const { predictions, outcomes, fresh } = await loadLogs();
   const stats = weeklyStats(today, predictions, outcomes);
 
   const rows = [];
-  rows.push(`預測 ${stats.predictedCount}/7 天｜結果回報 ${stats.reportedCount}/7 天`);
+  rows.push(esc(t("log.wPredicted", { p: stats.predictedCount, r: stats.reportedCount })));
   if (stats.goCount)
-    rows.push(`判定「出發」${stats.goCount} 天：已回報 ${stats.goReportedCount} 天中實際有燒 ${stats.goBurned} 天`);
+    rows.push(esc(t("log.wGo", { n: stats.goCount, rep: stats.goReportedCount, burn: stats.goBurned })));
   if (stats.skipReportedCount)
-    rows.push(`判定「跳過」且有回報 ${stats.skipReportedCount} 天：錯過有燒 ${stats.skipMissed} 天`);
-  if (stats.avgCd !== null) rows.push(`預測 C+D 週平均 ${stats.avgCd.toFixed(0)}%`);
-  if (stats.burnRate !== null) rows.push(`實際有燒比例 ${stats.burnRate.toFixed(0)}%`);
-  rows.push(`<span class="muted">樣本未達 60 天：僅觀察陳述，不做調參。${fresh ? "" : "（⚠️ 離線副本，可能過期）"}</span>`);
-  $("weekly-card").innerHTML = `<h2>本週統計</h2><ul class="reasons small">${rows.map((r) => `<li>${r}</li>`).join("")}</ul>`;
+    rows.push(esc(t("log.wSkip", { n: stats.skipReportedCount, miss: stats.skipMissed })));
+  if (stats.avgCd !== null) rows.push(esc(t("log.wAvg", { v: stats.avgCd.toFixed(0) })));
+  if (stats.burnRate !== null) rows.push(esc(t("log.wRate", { v: stats.burnRate.toFixed(0) })));
+  rows.push(`<span class="muted">${esc(t("log.wSample"))}${fresh ? "" : esc(t("log.wOffline"))}</span>`);
+  $("weekly-card").innerHTML = `<h2>${esc(t("log.weeklyTitle"))}</h2><ul class="reasons small">${rows.map((r) => `<li>${r}</li>`).join("")}</ul>`;
 
   // 方向欄：預測有無過出發門檻（C+D≥25）與實際有無燒（C/D）方向是否一致。
   // 不是嚴格校準（那要 60 天樣本），只是讓人一眼看到對錯趨勢。
@@ -657,20 +703,20 @@ async function renderLog() {
     return saidBurn === didBurn ? "✓" : "✗";
   };
   const hist = stats.days.slice().reverse().filter((d) => d.predictedCd !== null || d.outcome);
-  $("history-card").innerHTML = `<h2>歷史紀錄（近 7 天）</h2>` + (hist.length ? `
+  $("history-card").innerHTML = `<h2>${esc(t("log.histTitle"))}</h2>` + (hist.length ? `
     <table class="history-table">
-      <thead><tr><th>日期</th><th>判定</th><th>預測C+D</th><th>實際</th><th title="預測方向（門檻25）與實際是否一致">方向</th></tr></thead>
+      <thead><tr><th>${esc(t("log.thDate"))}</th><th>${esc(t("log.thVerdict"))}</th><th>${esc(t("log.thPred"))}</th><th>${esc(t("log.thActual"))}</th><th title="${esc(t("log.dirTip"))}">${esc(t("log.thDir"))}</th></tr></thead>
       <tbody>${hist.map((d) => `
         <tr>
           <td>${dateLabel(d.date)}</td>
-          <td>${esc(d.verdict ?? "—")}</td>
+          <td>${d.verdict ? esc(verdictLabel(d.verdict)) : "—"}</td>
           <td>${d.predictedCd !== null ? intervalStr(d.predictedCd) : "—"}</td>
-          <td>${d.outcome ? `<i class="dot s${d.outcome.toLowerCase()}"></i>${d.outcome}${d.reportCount > 1 ? `<span class="muted">（${d.reportCount} 人）</span>` : ""}` : "未回報"}</td>
+          <td>${d.outcome ? `<i class="dot s${d.outcome.toLowerCase()}"></i>${d.outcome}${d.reportCount > 1 ? `<span class="muted">${esc(t("log.people", { n: d.reportCount }))}</span>` : ""}` : esc(t("log.notReported"))}</td>
           <td class="dir-${dir(d) === "✓" ? "hit" : dir(d) === "✗" ? "miss" : "na"}">${dir(d)}</td>
         </tr>`).join("")}</tbody>
     </table>
-    <p class="footnote">方向 = 預測是否過出發門檻（C+D≥25）與實際有無燒一致；非正式校準（樣本滿 60 天才調參）。</p>`
-    : `<p class="muted small">尚無紀錄。今晚看完日落回報第一筆吧！</p>`);
+    <p class="footnote">${esc(t("log.dirNote"))}</p>`
+    : `<p class="muted small">${esc(t("log.empty"))}</p>`);
 }
 
 async function handleReport(outcome) {
@@ -682,19 +728,19 @@ async function handleReport(outcome) {
   };
   if (!getToken()) {
     // 公開回報路徑：預填 Issue Form，登入 GitHub 即可送出，機器人自動記錄
-    status.textContent = `已開啟回報表單（${outcome} 已預填）→ 按 Submit 即完成，機器人會自動記錄`;
+    status.textContent = t("log.openForm", { outcome });
     remember();
     renderLog();
     window.open(reportIssueUrl(outcome, note), "_blank", "noopener");
     return;
   }
-  if (!confirm(`回報 ${today} 實際結果為「${outcome}」？`)) return;
-  status.textContent = "送出中…";
+  if (!confirm(t("log.confirm", { date: today, outcome }))) return;
+  status.textContent = t("log.sending");
   const r = await dispatchReport(outcome, "今天", note);
   if (r.ok) remember();
   status.textContent = r.ok
-    ? `✅ 已送出（${outcome}），約 1–2 分鐘後寫入 outcomes.csv`
-    : `❌ 送出失敗（HTTP ${r.status}），請檢查 token 權限或改用 GitHub 頁面`;
+    ? t("log.sent", { outcome })
+    : t("log.sendFail", { status: r.status });
   if (r.ok) renderLog();
 }
 
@@ -710,19 +756,44 @@ function maintOn() {
 }
 
 function renderSettings() {
-  $("about-text").textContent =
-    `評分引擎 ${ENGINE_VERSION}｜規則常數與歷史教訓見 repo docs/。` +
-    `太陽幾何為本地計算（NOAA），離線可用。`;
+  $("about-text").textContent = t("settings.aboutText", { ver: ENGINE_VERSION });
+  const omStatus = state.lastFetchMs
+    ? t("settings.stOk", { time: hhmm(state.lastFetchMs) }) + (state.weatherStale ? t("settings.stStale") : "")
+    : t("settings.stNone");
   const items = [
-    `Open-Meteo：${state.lastFetchMs ? `最近成功 ${hhmm(state.lastFetchMs)}${state.weatherStale ? "（目前離線快取）" : ""}` : "尚未取得"}`,
-    `日誌來源：raw.githubusercontent.com（失敗退回站內副本）`,
-    `模式：${DEMO ? "DEMO（擬真資料）" : "正式"}`,
-    `天氣資料：<a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>（CC BY 4.0）`,
-    `<a href="${FEEDBACK_URL}" target="_blank" rel="noopener">💬 回饋與建議（GitHub）</a>`,
+    esc(t("settings.stOpenMeteo", { v: omStatus })),
+    esc(t("settings.stLogs")),
+    esc(t("settings.stMode", { v: DEMO ? t("settings.stDemo") : t("settings.stProd") })),
+    t("settings.stCredit"),
+    `<a href="${FEEDBACK_URL}" target="_blank" rel="noopener">${esc(t("settings.stFeedback"))}</a>`,
   ];
   $("status-list").innerHTML = items.map((i) => `<li>${i}</li>`).join("");
   $("maint-card").classList.toggle("hidden", !maintOn());
   if (maintOn()) $("gh-token").value = getToken();
+}
+
+// ── 首次使用引導（一次性，可關閉）────────────────────────
+const ONBOARD_KEY = "sunset.onboarded";
+
+function renderOnboard() {
+  const card = $("onboard-card");
+  if (!card) return;
+  let seen = false;
+  try { seen = localStorage.getItem(ONBOARD_KEY) === "1"; } catch { /* ignore */ }
+  if (seen) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+  card.innerHTML = `
+    <h2>${esc(t("onboard.title"))}</h2>
+    <ul class="reasons small">
+      <li>${esc(t("onboard.b1"))}</li>
+      <li>${esc(t("onboard.b2"))}</li>
+      <li>${esc(t("onboard.b3"))}</li>
+    </ul>
+    <div class="row"><button class="btn" id="onboard-dismiss">${esc(t("onboard.dismiss"))}</button></div>`;
+  $("onboard-dismiss").addEventListener("click", () => {
+    try { localStorage.setItem(ONBOARD_KEY, "1"); } catch { /* ignore */ }
+    card.classList.add("hidden");
+  });
 }
 
 // ── 事件與初始化 ─────────────────────────────────────────
@@ -750,10 +821,10 @@ function bindEvents() {
   );
   $("save-token").addEventListener("click", () => {
     setToken($("gh-token").value.trim());
-    $("token-status").textContent = getToken() ? "已儲存於本機。" : "已清除。";
+    $("token-status").textContent = getToken() ? t("settings.saved") : t("settings.clearedTok");
   });
   $("test-token").addEventListener("click", async () => {
-    $("token-status").textContent = "測試中…";
+    $("token-status").textContent = t("settings.testing");
     setToken($("gh-token").value.trim());
     $("token-status").textContent = (await testToken()).message;
   });
@@ -764,7 +835,7 @@ function bindEvents() {
       aboutTaps = 0;
       try { localStorage.setItem(MAINT_KEY, "1"); } catch { /* ignore */ }
       renderSettings();
-      $("token-status").textContent = "🔧 維護者模式已開啟";
+      $("token-status").textContent = t("settings.maintOn");
     }
   });
   $("exit-maint").addEventListener("click", () => {
@@ -772,10 +843,19 @@ function bindEvents() {
     try { localStorage.removeItem(MAINT_KEY); } catch { /* ignore */ }
     renderSettings();
   });
+  // 語言切換：狀態都在 localStorage，重載最不易殘留半翻譯畫面
+  const sel = $("lang-select");
+  sel.innerHTML = LANGS.map((l) => `<option value="${l.code}" ${l.code === getLang() ? "selected" : ""}>${l.label}</option>`).join("");
+  sel.addEventListener("change", () => {
+    setLang(sel.value);
+    location.reload();
+  });
 }
 
 async function init() {
+  applyStatic(); // 靜態 HTML 依語言翻譯（data-i18n）
   bindEvents();
+  renderOnboard();
   await loadViewpoints();
   await runAnalysis();
   if ("serviceWorker" in navigator && !DEMO) {

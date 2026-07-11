@@ -2,20 +2,22 @@
 
 import { probInterval } from "./scoring.js";
 import { TAIPEI_UTC_OFFSET_H } from "./solar.js";
-
-export const WEEKDAY_ZH = ["日", "一", "二", "三", "四", "五", "六"];
+import { getLang, t } from "./i18n.js";
 
 /** epoch ms → 台北 "HH:MM" */
 export function hhmm(ms) {
-  const t = new Date(ms + TAIPEI_UTC_OFFSET_H * 3600000);
-  return `${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}`;
+  const t2 = new Date(ms + TAIPEI_UTC_OFFSET_H * 3600000);
+  return `${String(t2.getUTCHours()).padStart(2, "0")}:${String(t2.getUTCMinutes()).padStart(2, "0")}`;
 }
 
-/** "YYYY-MM-DD" → "7/4（六）" */
+/** "YYYY-MM-DD" → zh "7/4（六）"｜en "Fri 7/4"｜es "vie 4/7" */
 export function dateLabel(dateStr) {
   const [y, m, d] = dateStr.split("-").map(Number);
-  const wd = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
-  return `${m}/${d}（${WEEKDAY_ZH[wd]}）`;
+  const wd = t("weekdays")[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+  const lang = getLang();
+  if (lang === "en") return `${wd} ${m}/${d}`;
+  if (lang === "es") return `${wd} ${d}/${m}`;
+  return `${m}/${d}（${wd}）`;
 }
 
 /** 點估 → "30–50%"（half width 可依模式分歧加寬） */
