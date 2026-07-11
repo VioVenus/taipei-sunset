@@ -34,5 +34,5 @@ jobs:
       - name: Regenerate parity fixtures (Python = canonical)
         run: python scripts/gen_parity_fixtures.py
 
-      - name: JS parity tests
-        run: node --test web/test/parity.test.mjs
+      - name: JS tests (parity + light phases)
+        run: node --test web/test/parity.test.mjs web/test/light.test.mjs

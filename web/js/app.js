@@ -15,15 +15,20 @@ import {
   testToken,
 } from "./github.js";
 import { TAIPEI_UTC_OFFSET_H } from "./solar.js";
+import { lightPhase, untilStr } from "./light.js";
 
-const DEMO = new URLSearchParams(location.search).has("demo");
+const QS = new URLSearchParams(location.search);
+const DEMO = QS.has("demo");
 const $ = (id) => document.getElementById(id);
 
-/** demo 模式固定「現在 = 今天 16:20 台北」，畫面可重現；正式模式用真實時間。 */
+/** demo 模式固定「現在 = 今天 16:20 台北」（可用 ?t=HH:MM 覆寫，供展示各光線相位）；
+    正式模式用真實時間。 */
 function nowMs() {
   if (!DEMO) return Date.now();
   const [y, m, d] = taipeiDatePlus(0).split("-").map(Number);
-  return Date.UTC(y, m - 1, d, 16 - TAIPEI_UTC_OFFSET_H, 20);
+  const t = /^(\d{1,2}):(\d{2})$/.exec(QS.get("t") || "");
+  const [hh, mm] = t ? [Number(t[1]), Number(t[2])] : [16, 20];
+  return Date.UTC(y, m - 1, d, hh - TAIPEI_UTC_OFFSET_H, mm);
 }
 
 const REGIONS = ["北", "中", "南", "東", "離島"]; // 顯示順序
@@ -284,6 +289,8 @@ function renderForecast() {
     } catch { /* 使用者取消 */ }
   });
 
+  renderLightCard(main);
+
   // 時間軸 + 羅盤（太陽幾何永遠可用）
   const s = main.sun;
   const items = [
@@ -375,6 +382,37 @@ function renderForecast() {
   $("data-footnote").textContent = p
     ? `資料：${main.weather.source}・${hhmm(state.lastFetchMs)} 取得｜評分引擎 ${p.engineVersion}${DEMO ? "｜⚠️ DEMO 模式（擬真資料）" : ""}`
     : "";
+}
+
+// ── 現在的光（僅今天）：光線相位 + 對應行動/拍攝建議 ─────
+function renderLightCard(main) {
+  const card = $("light-card");
+  if (!card) return;
+  if (state.offset !== 0) {
+    card.classList.add("hidden");
+    return;
+  }
+  const now = nowMs();
+  const { phase, untilMs, progress } = lightPhase(main.sun, now);
+  // 餘燼窗口是本卡存在的理由：正在燒的機率高峰，最怕使用者日落一到就走
+  const hot = phase.key === "afterglow";
+  const nextLabel = { day: "黃金時段", golden: "日落", afterglow: "藍調結束" }[phase.key];
+  card.classList.remove("hidden");
+  card.classList.toggle("light-hot", hot);
+  card.innerHTML = `
+    <div class="light-head">
+      <span class="light-emoji" aria-hidden="true">${phase.emoji}</span>
+      <div>
+        <div class="light-name">現在：${phase.name}</div>
+        <div class="light-heading ${hot ? "hot" : "muted"}">${esc(phase.heading)}</div>
+      </div>
+      ${untilMs ? `<span class="light-until muted small">距${nextLabel}<br><b>${untilStr(untilMs, now)}</b></span>` : ""}
+    </div>
+    ${progress !== null ? `<div class="range-bar light-bar"><i style="left:0;width:${(progress * 100).toFixed(0)}%"></i></div>` : ""}
+    <details class="help"${hot ? " open" : ""}>
+      <summary>📸 這個時段怎麼拍／怎麼做</summary>
+      <ul>${phase.tips.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+    </details>`;
 }
 
 // ── 出發前 60 秒確認（雷達/衛星/即時影像，人工維護清單）──
@@ -575,9 +613,27 @@ function setOffset(offset) {
 }
 
 // ── 紀錄分頁 ─────────────────────────────────────────────
+const MY_REPORT_KEY = "sunset.myreport."; // + date → outcome（本機記憶，防重複/顯示已回報）
+
 async function renderLog() {
   const today = taipeiDatePlus(0);
   $("report-title").textContent = `今晚 ${dateLabel(today)} 實際結果？`;
+
+  // 回報脈絡：今天的判定＋預測區間（有載入才顯示），讓回報者知道在對答案什麼
+  const todayRes =
+    state.offset === 0
+      ? (state.results.find((r) => r.viewpoint.id === state.selectedVpId) ?? state.recommended)
+      : null;
+  const mine = localStorage.getItem(MY_REPORT_KEY + today);
+  const ctx = [];
+  if (todayRes?.probs) {
+    ctx.push(
+      `今天預測（${esc(todayRes.viewpoint.name)}）：${esc(todayRes.verdict)}・火燒雲 ${intervalStr(todayRes.probs.burnLevel, todayRes.intervalHalfWidth)}`,
+    );
+  }
+  if (mine) ctx.push(`✅ 你今天已回報：<b>${esc(mine)}</b>（可再按其他鍵修改，只採計最新一筆）`);
+  $("report-context").innerHTML = ctx.join("<br>");
+
   const { predictions, outcomes, fresh } = await loadLogs();
   const stats = weeklyStats(today, predictions, outcomes);
 
@@ -592,41 +648,68 @@ async function renderLog() {
   rows.push(`<span class="muted">樣本未達 60 天：僅觀察陳述，不做調參。${fresh ? "" : "（⚠️ 離線副本，可能過期）"}</span>`);
   $("weekly-card").innerHTML = `<h2>本週統計</h2><ul class="reasons small">${rows.map((r) => `<li>${r}</li>`).join("")}</ul>`;
 
+  // 方向欄：預測有無過出發門檻（C+D≥25）與實際有無燒（C/D）方向是否一致。
+  // 不是嚴格校準（那要 60 天樣本），只是讓人一眼看到對錯趨勢。
+  const dir = (d) => {
+    if (d.predictedCd === null || !d.outcome) return "—";
+    const saidBurn = d.predictedCd >= 25;
+    const didBurn = d.outcome === "C" || d.outcome === "D";
+    return saidBurn === didBurn ? "✓" : "✗";
+  };
   const hist = stats.days.slice().reverse().filter((d) => d.predictedCd !== null || d.outcome);
   $("history-card").innerHTML = `<h2>歷史紀錄（近 7 天）</h2>` + (hist.length ? `
     <table class="history-table">
-      <thead><tr><th>日期</th><th>判定</th><th>預測C+D</th><th>實際</th></tr></thead>
+      <thead><tr><th>日期</th><th>判定</th><th>預測C+D</th><th>實際</th><th title="預測方向（門檻25）與實際是否一致">方向</th></tr></thead>
       <tbody>${hist.map((d) => `
         <tr>
           <td>${dateLabel(d.date)}</td>
           <td>${esc(d.verdict ?? "—")}</td>
           <td>${d.predictedCd !== null ? intervalStr(d.predictedCd) : "—"}</td>
           <td>${d.outcome ? `<i class="dot s${d.outcome.toLowerCase()}"></i>${d.outcome}${d.reportCount > 1 ? `<span class="muted">（${d.reportCount} 人）</span>` : ""}` : "未回報"}</td>
+          <td class="dir-${dir(d) === "✓" ? "hit" : dir(d) === "✗" ? "miss" : "na"}">${dir(d)}</td>
         </tr>`).join("")}</tbody>
-    </table>` : `<p class="muted small">尚無紀錄。</p>`);
+    </table>
+    <p class="footnote">方向 = 預測是否過出發門檻（C+D≥25）與實際有無燒一致；非正式校準（樣本滿 60 天才調參）。</p>`
+    : `<p class="muted small">尚無紀錄。今晚看完日落回報第一筆吧！</p>`);
 }
 
 async function handleReport(outcome) {
   const note = $("report-note").value.trim();
   const status = $("report-status");
   const today = taipeiDatePlus(0);
+  const remember = () => {
+    try { localStorage.setItem(MY_REPORT_KEY + today, outcome); } catch { /* ignore */ }
+  };
   if (!getToken()) {
     // 公開回報路徑：預填 Issue Form，登入 GitHub 即可送出，機器人自動記錄
     status.textContent = `已開啟回報表單（${outcome} 已預填）→ 按 Submit 即完成，機器人會自動記錄`;
+    remember();
+    renderLog();
     window.open(reportIssueUrl(outcome, note), "_blank", "noopener");
     return;
   }
   if (!confirm(`回報 ${today} 實際結果為「${outcome}」？`)) return;
   status.textContent = "送出中…";
   const r = await dispatchReport(outcome, "今天", note);
+  if (r.ok) remember();
   status.textContent = r.ok
     ? `✅ 已送出（${outcome}），約 1–2 分鐘後寫入 outcomes.csv`
     : `❌ 送出失敗（HTTP ${r.status}），請檢查 token 權限或改用 GitHub 頁面`;
+  if (r.ok) renderLog();
 }
 
 // ── 設定分頁 ─────────────────────────────────────────────
+// 維護者卡預設隱藏：站是公開的，token 介面對一般訪客是雜訊、且不該鼓勵
+// 「把 token 貼進網站」。連點版本文字 7 下開啟。注意這是介面整理不是保安——
+// 靜態站的任何「密碼」都能看原始碼繞過；真機密只活在 GitHub Secrets。
+const MAINT_KEY = "sunset.maint";
+let aboutTaps = 0;
+
+function maintOn() {
+  return localStorage.getItem(MAINT_KEY) === "1";
+}
+
 function renderSettings() {
-  $("gh-token").value = getToken();
   $("about-text").textContent =
     `評分引擎 ${ENGINE_VERSION}｜規則常數與歷史教訓見 repo docs/。` +
     `太陽幾何為本地計算（NOAA），離線可用。`;
@@ -638,6 +721,8 @@ function renderSettings() {
     `<a href="${FEEDBACK_URL}" target="_blank" rel="noopener">💬 回饋與建議（GitHub）</a>`,
   ];
   $("status-list").innerHTML = items.map((i) => `<li>${i}</li>`).join("");
+  $("maint-card").classList.toggle("hidden", !maintOn());
+  if (maintOn()) $("gh-token").value = getToken();
 }
 
 // ── 事件與初始化 ─────────────────────────────────────────
@@ -671,6 +756,21 @@ function bindEvents() {
     $("token-status").textContent = "測試中…";
     setToken($("gh-token").value.trim());
     $("token-status").textContent = (await testToken()).message;
+  });
+  // 維護者模式開關：連點「關於」版本文字 7 下開啟；離開時清除 token
+  $("about-text").addEventListener("click", () => {
+    aboutTaps += 1;
+    if (aboutTaps >= 7) {
+      aboutTaps = 0;
+      try { localStorage.setItem(MAINT_KEY, "1"); } catch { /* ignore */ }
+      renderSettings();
+      $("token-status").textContent = "🔧 維護者模式已開啟";
+    }
+  });
+  $("exit-maint").addEventListener("click", () => {
+    setToken("");
+    try { localStorage.removeItem(MAINT_KEY); } catch { /* ignore */ }
+    renderSettings();
   });
 }
 
