@@ -1,0 +1,53 @@
+台灣日落／火燒雲預測系統（taipei-sunset）
+原始碼公開・非商業授權 / Source-Available Non-Commercial License
+
+著作權所有 Copyright (c) 2026 VioVenus
+保留所有權利 All rights reserved
+
+中文（正本，如有歧義以中文為準）
+────────────────────────────────
+
+本專案之全部內容——包含但不限於原始碼、評分規則與常數、觀景點位資料庫
+（data/viewpoints.json）、即時影像清單、預測與回報日誌、文件與介面文案
+（以下合稱「本著作」）——著作權屬 VioVenus 所有。
+
+在保留上述著作權之前提下，著作權人授予任何取得本著作之人以下非專屬、
+全球、免授權金之許可：
+
+1. 為個人、教育或研究等**非商業目的**，檢視、下載、執行、修改本著作，
+   及部署自用副本。
+2. 以 Issue、Pull Request 或回報表單向本專案提交貢獻。
+3. 於符合前述目的之分享時，須保留本授權聲明與著作權標示，並註明出處
+   （GitHub: VioVenus/taipei-sunset）。
+
+未經著作權人事先書面同意，**不得**：
+
+a. 將本著作之全部或一部用於任何商業目的（包含但不限於付費產品或服務、
+   廣告變現、募資、企業內部營運用途）；
+b. 以本著作為基礎發行更名或去除署名之衍生版本；
+c. 轉售、再授權本著作或其衍生物。
+
+本著作按「現狀」提供，不附任何明示或默示之擔保。預測結果僅供參考，
+著作權人不對使用本著作所生之任何損害負責。
+
+English (translation; the Chinese text governs)
+────────────────────────────────
+
+Copyright (c) 2026 VioVenus. All rights reserved.
+
+Permission is granted, free of charge, to any person obtaining a copy of
+this work (source code, scoring rules and constants, the viewpoints
+database, webcam lists, prediction/report logs, documentation, and UI
+copy) to view, download, run, modify, and self-host it for personal,
+educational, or research **non-commercial purposes**, and to submit
+contributions to this project, provided this notice and the copyright
+attribution (GitHub: VioVenus/taipei-sunset) are retained.
+
+Commercial use of any part of this work — including paid products or
+services, ad-supported redistribution, or internal business operations —
+and redistribution of renamed or de-attributed derivatives are **not
+permitted** without prior written consent of the copyright holder.
+
+THE WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. Forecasts are
+informational only; the copyright holder is not liable for any damages
+arising from use of this work.
