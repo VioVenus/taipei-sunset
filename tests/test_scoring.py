@@ -114,6 +114,16 @@ def test_reasons_present():
     assert any("理想帶" in r for r in p.reasons)
 
 
+def test_disk_block_reason_when_low_bank_with_fuel():
+    """教訓 6：低雲擋日輪但上方有燃料 → 出現『太陽本身可能被擋、天空仍可能有色彩』理由。"""
+    # 中等低雲（擋日輪）+ 充足中高雲（燃料）
+    blocked = score(ScoringInput(cloud_low=50, cloud_mid=50, cloud_high=40))
+    assert any("太陽本身" in r for r in blocked.reasons)
+    # 低雲有縫（看得到太陽）→ 不該出現日輪遮蔽理由
+    clear = score(ScoringInput(cloud_low=15, cloud_mid=50, cloud_high=40))
+    assert not any("太陽本身" in r for r in clear.reasons)
+
+
 def test_prob_interval_clamped():
     """區間輸出 ±10、夾在 [0,100]。"""
     assert prob_interval(50) == (40, 60)

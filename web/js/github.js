@@ -9,8 +9,8 @@ export const FEEDBACK_URL = `https://github.com/${REPO}/issues/new?template=feed
 
 /** 公開回報路徑：預填的 Issue Form（任何 GitHub 使用者可用，機器人自動 ingest）。 */
 export function reportIssueUrl(outcome, note = "", dateStr = "今天") {
-  const labels = { A: "A 全擋沒看到（低雲/降雨全面遮擋）", B: "B 普通橘色夕陽（看得到但無戲劇性）",
-    C: "C 局部火燒雲", D: "D 全面火燒雲" };
+  const labels = { A: "A 灰暗沒色彩（低雲/降雨整片罩住）", B: "B 橘色天空／霞光（看不看得到太陽本身都算）",
+    C: "C 局部火燒", D: "D 全面火燒" };
   const params = new URLSearchParams({
     template: "outcome_report.yml",
     outcome: labels[outcome] || "",

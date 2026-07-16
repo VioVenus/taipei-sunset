@@ -1,9 +1,11 @@
 // 評分引擎 v1 —— 從 src/sunset/scoring.py 逐式移植。
 // Python 為 canonical：常數與流程不得在此單方面更動（parity 測試會擋）。
 
-// v1.2.0：評估窗口改以實際日落時刻為中心（見 weather.js）；機率分配規則與 v1.0.0 相同。
+// v1.3.0：釐清四情境分類（B=橘色天空/霞光，與「看不看得到太陽本身」脫鉤，教訓 6）；
+//   機率分配數值不變，只加日輪遮蔽理由。
+// v1.2.0：評估窗口改以實際日落時刻為中心（見 weather.js）。
 // v1.1.0：動態不確定性區間（多模式分歧 → 區間加寬）。
-export const ENGINE_VERSION = "v1.2.0";
+export const ENGINE_VERSION = "v1.3.0";
 
 export const LOW_CLEAR_MAX = 30.0;
 export const MID_HIGH_IDEAL_MIN = 30.0;
@@ -25,6 +27,7 @@ export const BONUS_FRONT = 10.0;
 export const BONUS_DAILY_CAP = 25.0;
 export const ANTI_PESSIMISM_HIGH_MIN = 20.0;
 export const ANTI_PESSIMISM_CD_FLOOR = 15.0;
+export const DISK_SKY_FUEL_MIN = 20.0; // 上方中高雲 ≥ 此值 → 日輪被擋但天空仍可能有色彩
 export const PROB_INTERVAL_HALF_WIDTH = 10.0;
 export const PROB_INTERVAL_MAX_HALF_WIDTH = 25.0;
 export const INTERVAL_SPREAD_THRESHOLD = 10.0;
@@ -131,6 +134,12 @@ export function score(inp) {
         probs[3] - (take * probs[3]) / bcd,
       ];
       reasons.push(`低雲干擾（${low.toFixed(0)}%）：向 A 移轉 ${take.toFixed(0)} 個百分點`);
+      // 兩軸提示（教訓 6）：低雲擋日輪，但上方有燃料時天空仍可能有色彩
+      if (midHigh >= DISK_SKY_FUEL_MIN) {
+        reasons.push("太陽本身可能被低雲擋住，但上方中高雲仍可能被點亮（滿天橘色甚至火燒）");
+      } else {
+        reasons.push("太陽本身可能被低雲擋住；上方中高雲少，色彩有限");
+      }
     }
   }
 

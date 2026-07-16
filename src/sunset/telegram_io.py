@@ -76,7 +76,7 @@ def format_analysis(result: AnalysisResult) -> str:
         p = result.probs
         hw = result.interval_half_width
         lines.append(
-            f"看得到日落：{_interval_str(p.sunset_visible, hw)}｜"
+            f"有夕陽色彩：{_interval_str(p.sunset_visible, hw)}｜"
             f"火燒雲：{_interval_str(p.burn_level, hw)}"
         )
         lines.append(
@@ -138,7 +138,7 @@ def format_outcome_prompt(target_date: date) -> str:
     return (
         f"📝 {_date_label(target_date)} 今晚實際結果是哪一種？\n"
         "回覆 /report A|B|C|D [備註]\n"
-        "A 全擋沒看到 / B 普通橘色 / C 局部火燒雲 / D 全面火燒雲\n"
+        "A 灰暗沒色彩 / B 橘色天空（看不看得到太陽都算）/ C 局部火燒 / D 全面火燒\n"
         "（你的回報會寫入結果日誌，供明日持續性加成與後續校準使用）"
     )
 

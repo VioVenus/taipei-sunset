@@ -11,14 +11,23 @@ body:
   - type: dropdown
     id: outcome
     attributes:
-      label: 今晚實際結果
+      label: 今晚天空色彩（只看天空多精彩，跟看不看得到太陽本身無關）
       options:
-        - A 全擋沒看到（低雲/降雨全面遮擋）
-        - B 普通橘色夕陽（看得到但無戲劇性）
-        - C 局部火燒雲
-        - D 全面火燒雲
+        - A 灰暗沒色彩（低雲/降雨整片罩住）
+        - B 橘色天空／霞光（看不看得到太陽本身都算）
+        - C 局部火燒
+        - D 全面火燒
     validations:
       required: true
+  - type: dropdown
+    id: sun
+    attributes:
+      label: 太陽本身（選填）
+      description: 日輪有沒有被地平線附近的低雲擋住？這是跟色彩獨立的另一軸。
+      options:
+        - 有看到太陽本身
+        - 太陽被低雲擋住
+        - 不確定
   - type: input
     id: date
     attributes:

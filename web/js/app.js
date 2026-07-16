@@ -143,7 +143,9 @@ function plainSummary(result) {
   else if (r.includes("太乾淨")) s = t("summary.tooClean");
   else if (r.includes("太厚")) s = t("summary.tooThick");
   else s = go ? t("summary.neutralGo") : t("summary.neutralSkip");
-  if (r.includes("低雲干擾")) s += t("summary.lowCloud");
+  // 日輪遮蔽（教訓 6）：有此理由時，用更具體的「看不到太陽但天空仍有色彩」取代泛用的低雲提醒
+  if (r.includes("太陽本身")) s += t("summary.diskBlock");
+  else if (r.includes("低雲干擾")) s += t("summary.lowCloud");
   if (r.includes("雨後放晴")) s += t("summary.rainClear");
   return s;
 }
@@ -359,6 +361,7 @@ function renderForecast() {
           <li>${t("scenario.helpC")}</li>
           <li>${t("scenario.helpD")}</li>
         </ul>
+        <p class="muted">💡 ${esc(t("scenario.helpDisk"))}</p>
         <p class="muted">${esc(t("scenario.interval"))}</p>
       </details>`;
     $("reasons-card").innerHTML = `<h2>${esc(t("scenario.reasonsTitle"))}</h2>` +

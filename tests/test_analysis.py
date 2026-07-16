@@ -135,7 +135,7 @@ def test_format_analysis_interval_not_point():
     )
     text = telegram_io.format_analysis(result)
     assert "–" in text  # 區間連字符
-    assert "看得到日落：" in text
+    assert "有夕陽色彩：" in text
     assert "火燒雲：" in text
     assert "理由：" in text
 

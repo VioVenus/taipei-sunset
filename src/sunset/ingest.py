@@ -114,12 +114,20 @@ def ingest(
             viewpoint_id = token
         # 不在建檔清單（例如「其他／不確定」）→ 留空，仍收單（回報比點位精確更重要）
 
+    # 日輪可見度（教訓 6，選填）：與 A–D 脫鉤的另一軸，先以 note 標記存下（不併入共識）
+    sun_raw = field("太陽本身", "太陽", "sun disk", "sun")
+    sun_tag = ""
+    if "擋" in sun_raw or "blocked" in sun_raw.lower() or "tapado" in sun_raw.lower():
+        sun_tag = "[太陽被擋] "
+    elif "看得到" in sun_raw or "visible" in sun_raw.lower():
+        sun_tag = "[有看到太陽] "
+
     record = logbook.ReportRecord(
         target_date=target,
         reported_at_utc=now,
         outcome=outcome,
         viewpoint_id=viewpoint_id,
-        note=_sanitize_note(field("備註", "note")),
+        note=_sanitize_note(sun_tag + field("備註", "note")),
         reporter=reporter or "anonymous",
         source=source,
     )
