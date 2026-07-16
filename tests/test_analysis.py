@@ -177,6 +177,19 @@ def test_parse_date_arg():
         telegram_io.parse_date_arg("2026-07-03", today)  # 過去日期
 
 
+def test_parse_report_date_arg_allows_yesterday():
+    """回報日期分開解析：接受今天/昨天，拒絕未來與過久（跨午夜補報用）。"""
+    today = date(2026, 7, 4)
+    assert telegram_io.parse_report_date_arg("今天", today) == today
+    assert telegram_io.parse_report_date_arg("昨天", today) == date(2026, 7, 3)
+    assert telegram_io.parse_report_date_arg("yesterday", today) == date(2026, 7, 3)
+    assert telegram_io.parse_report_date_arg("2026-07-03", today) == date(2026, 7, 3)
+    with pytest.raises(ValueError):
+        telegram_io.parse_report_date_arg("明天", today)  # 未來不可回報
+    with pytest.raises(ValueError):
+        telegram_io.parse_report_date_arg("2026-07-02", today)  # 超過昨天
+
+
 def test_weather_exclusion_shown_for_jiantan():
     result = analyze(
         TARGET, VIEWPOINTS["jiantan_laodifang"], _StubFetcher(_window()), now_utc=AFTERNOON

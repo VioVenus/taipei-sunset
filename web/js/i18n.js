@@ -14,7 +14,7 @@ const STRINGS = {
     appTitle: "台灣日落",
     sunsetWord: "日落",
     nav: { forecast: "預報", log: "紀錄", settings: "設定" },
-    chips: { today: "今天", tomorrow: "明天", dayAfter: "後天", plus3: "+3天" },
+    chips: { today: "今天", tomorrow: "明天", dayAfter: "後天", plus3: "+3天", yesterday: "昨天" },
     weekdays: ["日", "一", "二", "三", "四", "五", "六"],
     banner: {
       preliminary: "📌 初步展望・信心低，以當日 16:20 推播為準（早上的預報對午後對流幾乎無鑑別力）",
@@ -99,6 +99,9 @@ const STRINGS = {
     },
     log: {
       title: "今晚 {date} 實際結果？",
+      titleBackfill: "補報 {date} 的結果？",
+      backfillHint: "補報昨天：填你昨晚實際看到的（跨午夜補報，僅限昨天）",
+      reportForToday: "今天", reportForYesterday: "昨天",
       context: "今天預測（{name}）：{verdict}・火燒雲 {interval}",
       mine: "✅ 你今天已回報：<b>{outcome}</b>（可再按其他鍵修改，只採計最新一筆）",
       oa: "全擋沒看到", ob: "普通橘色", oc: "局部火燒雲", od: "全面火燒雲",
@@ -148,7 +151,7 @@ const STRINGS = {
     appTitle: "Taiwan Sunset",
     sunsetWord: "Sunset",
     nav: { forecast: "Forecast", log: "Report", settings: "Settings" },
-    chips: { today: "Today", tomorrow: "Tmrw", dayAfter: "+2d", plus3: "+3d" },
+    chips: { today: "Today", tomorrow: "Tmrw", dayAfter: "+2d", plus3: "+3d", yesterday: "Yesterday" },
     weekdays: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
     banner: {
       preliminary: "📌 Early outlook, low confidence — the 4:20 pm update is the one to trust (morning models can't see afternoon storms)",
@@ -233,6 +236,9 @@ const STRINGS = {
     },
     log: {
       title: "How did {date} actually turn out?",
+      titleBackfill: "Backfill {date}'s result?",
+      backfillHint: "Backfilling yesterday: report what you actually saw last night (yesterday only)",
+      reportForToday: "Today", reportForYesterday: "Yesterday",
       context: "Today's call ({name}): {verdict} · fire-sky {interval}",
       mine: "✅ You reported <b>{outcome}</b> today (tap another to change — only the latest counts)",
       oa: "Blocked, saw nothing", ob: "Plain orange", oc: "Partial fire-sky", od: "Full fire-sky",
@@ -282,7 +288,7 @@ const STRINGS = {
     appTitle: "Atardeceres de Taiwán",
     sunsetWord: "Atardecer",
     nav: { forecast: "Pronóstico", log: "Reportar", settings: "Ajustes" },
-    chips: { today: "Hoy", tomorrow: "Mañana", dayAfter: "+2d", plus3: "+3d" },
+    chips: { today: "Hoy", tomorrow: "Mañana", dayAfter: "+2d", plus3: "+3d", yesterday: "Ayer" },
     weekdays: ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"],
     banner: {
       preliminary: "📌 Pronóstico preliminar, poca confianza — el definitivo sale a las 16:20 (los modelos matutinos no ven las tormentas de la tarde)",
@@ -367,6 +373,9 @@ const STRINGS = {
     },
     log: {
       title: "¿Cómo estuvo realmente el {date}?",
+      titleBackfill: "¿Registrar el resultado del {date}?",
+      backfillHint: "Registrando ayer: reporta lo que viste anoche (solo ayer)",
+      reportForToday: "Hoy", reportForYesterday: "Ayer",
       context: "Veredicto de hoy ({name}): {verdict} · cielo ardiente {interval}",
       mine: "✅ Hoy ya reportaste <b>{outcome}</b> (toca otro para cambiarlo — solo cuenta el último)",
       oa: "Tapado, nada visible", ob: "Naranja normal", oc: "Ardió en parte", od: "Ardió todo",

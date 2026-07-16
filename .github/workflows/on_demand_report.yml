@@ -11,7 +11,7 @@ on:
         options: [A, B, C, D]
         required: true
       date:
-        description: "結果所屬日期（今天|YYYY-MM-DD）"
+        description: "結果所屬日期（今天|昨天|YYYY-MM-DD，僅限昨天內）"
         default: "今天"
       note:
         description: "備註（選填）"

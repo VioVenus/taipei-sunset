@@ -8,13 +8,13 @@ export const ACTIONS_URL = `https://github.com/${REPO}/actions/workflows/on_dema
 export const FEEDBACK_URL = `https://github.com/${REPO}/issues/new?template=feedback.yml`;
 
 /** 公開回報路徑：預填的 Issue Form（任何 GitHub 使用者可用，機器人自動 ingest）。 */
-export function reportIssueUrl(outcome, note = "") {
+export function reportIssueUrl(outcome, note = "", dateStr = "今天") {
   const labels = { A: "A 全擋沒看到（低雲/降雨全面遮擋）", B: "B 普通橘色夕陽（看得到但無戲劇性）",
     C: "C 局部火燒雲", D: "D 全面火燒雲" };
   const params = new URLSearchParams({
     template: "outcome_report.yml",
     outcome: labels[outcome] || "",
-    date: "今天",
+    date: dateStr,
   });
   if (note) params.set("note", note);
   return `https://github.com/${REPO}/issues/new?${params}`;

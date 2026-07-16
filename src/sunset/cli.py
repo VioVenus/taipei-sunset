@@ -57,7 +57,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_report = sub.add_parser("report", help="回報實際結果 → outcomes.csv")
     p_report.add_argument("--outcome", required=True, choices=logbook.VALID_OUTCOMES)
     p_report.add_argument("--viewpoint", default="", help="點位 id（可留空）")
-    p_report.add_argument("--date", default="今天", help="結果所屬日期（預設今天）")
+    p_report.add_argument("--date", default="今天", help="結果所屬日期：今天|昨天|YYYY-MM-DD（僅限昨天內）")
     p_report.add_argument("--note", default="", help="備註")
 
     sub.add_parser("viewpoints", help="列出已建檔點位")
@@ -213,7 +213,7 @@ def _cmd_ingest_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
-    target_date = telegram_io.parse_date_arg(args.date)
+    target_date = telegram_io.parse_report_date_arg(args.date)
     path = logbook.append_outcome(
         logbook.OutcomeRecord(
             target_date=target_date,

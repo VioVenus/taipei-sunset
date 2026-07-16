@@ -50,6 +50,10 @@
     <section id="tab-log" class="tab" aria-label="紀錄">
       <div class="card full">
         <h2 id="report-title">—</h2>
+        <div class="chips report-day" id="report-day" role="tablist" aria-label="回報日期">
+          <button class="chip active" data-day="0" data-i18n="chips.today">今天</button>
+          <button class="chip" data-day="1" data-i18n="chips.yesterday">昨天</button>
+        </div>
         <p class="muted small" id="report-context"></p>
         <div class="report-grid">
           <button class="report-btn oa" data-outcome="A">🌫 A<span data-i18n="log.oa">全擋沒看到</span></button>

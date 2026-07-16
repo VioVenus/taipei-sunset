@@ -190,7 +190,7 @@ class TelegramClient:
 
 
 def parse_date_arg(arg: str, today: date | None = None) -> date:
-    """解析 今天|明天|後天|YYYY-MM-DD，限制在今天～未來 3 天。"""
+    """解析 今天|明天|後天|YYYY-MM-DD，限制在今天～未來 3 天（查詢/預報用）。"""
     base = today or datetime.now(TAIPEI_TZ).date()
     aliases = {"今天": 0, "明天": 1, "後天": 2, "today": 0, "tomorrow": 1}
     if arg in aliases:
@@ -200,6 +200,29 @@ def parse_date_arg(arg: str, today: date | None = None) -> date:
     offset = (target - base).days
     if not 0 <= offset <= MAX_QUERY_DAYS_AHEAD:
         raise ValueError(f"日期需在今天～未來 {MAX_QUERY_DAYS_AHEAD} 天內（收到 {target.isoformat()}）")
+    return target
+
+
+# 結果回報允許補報昨天（跨午夜）；與 ingest.MAX_REPORT_AGE_DAYS 一致，更久遠的回憶不可靠不收。
+REPORT_MAX_AGE_DAYS = 1
+
+
+def parse_report_date_arg(arg: str, today: date | None = None) -> date:
+    """解析回報日期 今天|昨天|YYYY-MM-DD，限制在昨天～今天（回報/校準用）。
+
+    與『查詢』的 parse_date_arg 分開：查詢是未來、回報是過去，範圍相反。
+    """
+    base = today or datetime.now(TAIPEI_TZ).date()
+    aliases = {"今天": 0, "昨天": -1, "today": 0, "yesterday": -1}
+    if arg in aliases:
+        target = base + timedelta(days=aliases[arg])
+    else:
+        target = date.fromisoformat(arg)
+    offset = (base - target).days  # 0=今天、1=昨天
+    if not 0 <= offset <= REPORT_MAX_AGE_DAYS:
+        raise ValueError(
+            f"回報日期只接受今天或最近 {REPORT_MAX_AGE_DAYS} 天內（收到 {target.isoformat()}）"
+        )
     return target
 
 
