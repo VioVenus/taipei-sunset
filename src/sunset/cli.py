@@ -54,6 +54,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_ingest.add_argument("--reporter", required=True, help="GitHub login")
     p_ingest.add_argument("--source", default="issue", help="來源標記（如 issue#12）")
 
+    # 結構化 dispatch 回報（Cloudflare Worker 中繼 → repository_dispatch）；欄位走環境變數
+    # DISPATCH_OUTCOME/DATE/VIEWPOINT/NOTE/SUN/REPORTER，避免 note 注入假欄位。
+    sub.add_parser("ingest-dispatch", help="結構化欄位回報（repository_dispatch）→ reports.csv")
+
     p_report = sub.add_parser("report", help="回報實際結果 → outcomes.csv")
     p_report.add_argument("--outcome", required=True, choices=logbook.VALID_OUTCOMES)
     p_report.add_argument("--viewpoint", default="", help="點位 id（可留空）")
@@ -212,6 +216,24 @@ def _cmd_ingest_report(args: argparse.Namespace) -> int:
     return 0 if result.ok else 1
 
 
+def _cmd_ingest_dispatch(args: argparse.Namespace) -> int:
+    from sunset import ingest  # 延遲載入
+
+    reporter = (os.environ.get("DISPATCH_REPORTER", "") or "web").strip()[:60]
+    result = ingest.ingest_fields(
+        outcome=os.environ.get("DISPATCH_OUTCOME", ""),
+        date=os.environ.get("DISPATCH_DATE", ""),
+        viewpoint=os.environ.get("DISPATCH_VIEWPOINT", ""),
+        note=os.environ.get("DISPATCH_NOTE", ""),
+        sun=os.environ.get("DISPATCH_SUN", ""),
+        reporter=reporter,
+        source="relay",
+        logs_dir=args.logs_dir,
+    )
+    print(result.message)
+    return 0 if result.ok else 1
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
     target_date = telegram_io.parse_report_date_arg(args.date)
     path = logbook.append_outcome(
@@ -293,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
         "prompt-outcome": _cmd_prompt_outcome,
         "weekly-review": _cmd_weekly_review,
         "ingest-report": _cmd_ingest_report,
+        "ingest-dispatch": _cmd_ingest_dispatch,
         "report": _cmd_report,
         "viewpoints": _cmd_viewpoints,
         "bot": _cmd_bot,

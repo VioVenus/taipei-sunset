@@ -75,10 +75,46 @@ def ingest(
     logs_dir: Path | None = None,
     now_utc: datetime | None = None,
 ) -> IngestResult:
-    """解析並落檔一筆回報；失敗回傳 ok=False 與原因（不拋例外）。"""
+    """解析 Issue Form body 並落檔一筆回報；失敗回傳 ok=False 與原因（不拋例外）。"""
+    return _ingest_fields(parse_issue_form(body), reporter, source, logs_dir, now_utc)
+
+
+def ingest_fields(
+    *,
+    outcome: str,
+    date: str = "",
+    viewpoint: str = "",
+    note: str = "",
+    sun: str = "",
+    reporter: str,
+    source: str,
+    logs_dir: Path | None = None,
+    now_utc: datetime | None = None,
+) -> IngestResult:
+    """結構化欄位落檔（供 Worker 中繼的 repository_dispatch 用）。
+
+    走與 Issue Form 相同的驗證，但直接吃欄位而非重建 markdown——避免 note 內含
+    「### 標題」被解析成假欄位的注入風險。
+    """
+    fields = {
+        "實際結果": outcome,
+        "日期": date,
+        "點位": viewpoint,
+        "備註": note,
+        "太陽本身": sun,
+    }
+    return _ingest_fields(fields, reporter, source, logs_dir, now_utc)
+
+
+def _ingest_fields(
+    fields: dict[str, str],
+    reporter: str,
+    source: str,
+    logs_dir: Path | None,
+    now_utc: datetime | None,
+) -> IngestResult:
     now = now_utc or datetime.now(UTC)
     today = now.astimezone(TAIPEI_TZ).date()
-    fields = parse_issue_form(body)
 
     def field(*names: str) -> str:
         for name in names:
@@ -87,7 +123,7 @@ def ingest(
                     return value
         return ""
 
-    outcome_raw = field("實際結果", "結果", "outcome").strip().upper()
+    outcome_raw = field("實際結果", "結果", "色彩", "天空", "outcome", "sky").strip().upper()
     outcome = outcome_raw[:1]
     if outcome not in logbook.VALID_OUTCOMES:
         return IngestResult(

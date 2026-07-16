@@ -10,10 +10,13 @@ import {
   dispatchReport,
   FEEDBACK_URL,
   getToken,
+  relayEnabled,
   reportIssueUrl,
   setToken,
+  submitReportViaRelay,
   testToken,
 } from "./github.js";
+import { TURNSTILE_SITEKEY } from "./config.js";
 import { TAIPEI_UTC_OFFSET_H } from "./solar.js";
 import { lightPhase, minutesUntil, PHASE_EMOJI } from "./light.js";
 import { applyStatic, getLang, LANGS, setLang, t } from "./i18n.js";
@@ -45,6 +48,8 @@ const state = {
   recommended: null,
   expandedVp: null,
   reportDay: 0, // 回報哪一天：0=今天、1=昨天（跨午夜補報）
+  reportSun: "", // 太陽本身：""=略過、visible、blocked
+  turnstileId: null, // Turnstile widget id（中繼啟用時）
   lastFetchMs: null,
   weatherStale: false,
   weatherCache: new Map(), // `${dateStr}|${vpId}` → WeatherWindow（工作階段快取）
@@ -736,25 +741,72 @@ async function handleReport(outcome) {
   // 回報日期跟著切換走：0=今天、1=昨天。ingest 與 workflow 都收「今天|昨天」。
   const reportDate = taipeiDatePlus(-state.reportDay);
   const dateArg = state.reportDay === 1 ? "昨天" : "今天";
+  const sun = state.reportSun; // "" | visible | blocked
+  const sunZh = sun === "blocked" ? "太陽被低雲擋住" : sun === "visible" ? "有看到太陽本身" : "";
   const remember = () => {
     try { localStorage.setItem(MY_REPORT_KEY + reportDate, outcome); } catch { /* ignore */ }
   };
-  if (!getToken()) {
-    // 公開回報路徑：預填 Issue Form（含日期），登入 GitHub 即可送出，機器人自動記錄
-    status.textContent = t("log.openForm", { outcome });
-    remember();
-    renderLog();
-    window.open(reportIssueUrl(outcome, note, dateArg), "_blank", "noopener");
+
+  // ① 免帳號免跳轉：Worker 中繼（config 填了 RELAY_URL＋Turnstile 金鑰才啟用）
+  if (!getToken() && relayEnabled() && TURNSTILE_SITEKEY) {
+    const cfToken = window.turnstile && state.turnstileId != null
+      ? window.turnstile.getResponse(state.turnstileId) : "";
+    if (!cfToken) {
+      status.textContent = t("log.captcha");
+      window.turnstile?.execute?.(state.turnstileId);
+      return;
+    }
+    status.textContent = t("log.sending");
+    const r = await submitReportViaRelay({
+      outcome, date: dateArg, viewpoint: findVp(state.selectedVpId)?.id || "",
+      note, sun, cfToken, hp: $("report-hp")?.value || "",
+    });
+    window.turnstile?.reset?.(state.turnstileId);
+    if (r.ok) { remember(); status.textContent = t("log.relaySent"); renderLog(); }
+    else { status.textContent = t("log.relayFail"); }
     return;
   }
-  if (!confirm(t("log.confirm", { date: reportDate, outcome }))) return;
-  status.textContent = t("log.sending");
-  const r = await dispatchReport(outcome, dateArg, note);
-  if (r.ok) remember();
-  status.textContent = r.ok
-    ? t("log.sent", { outcome })
-    : t("log.sendFail", { status: r.status });
-  if (r.ok) renderLog();
+
+  // ② 維護者一鍵：fine-grained token → workflow_dispatch（sun 併入 note）
+  if (getToken()) {
+    if (!confirm(t("log.confirm", { date: reportDate, outcome }))) return;
+    status.textContent = t("log.sending");
+    const noteFull = (sunZh ? `[${sunZh}] ` : "") + note;
+    const r = await dispatchReport(outcome, dateArg, noteFull);
+    if (r.ok) remember();
+    status.textContent = r.ok ? t("log.sent", { outcome }) : t("log.sendFail", { status: r.status });
+    if (r.ok) renderLog();
+    return;
+  }
+
+  // ③ 退回：預填 Issue Form（含日期與太陽本身），登入 GitHub 送出
+  status.textContent = t("log.openForm", { outcome });
+  remember();
+  renderLog();
+  window.open(reportIssueUrl(outcome, note, dateArg, sunZh), "_blank", "noopener");
+}
+
+// ── Turnstile（僅在中繼啟用時載入；隱私友善、隱形驗證）──────
+let turnstileScriptLoaded = false;
+function ensureTurnstile() {
+  if (!relayEnabled() || !TURNSTILE_SITEKEY) return;
+  const box = $("turnstile-box");
+  if (!box) return;
+  box.classList.remove("hidden");
+  const render = () => {
+    if (state.turnstileId != null || !window.turnstile || !box.isConnected) return;
+    state.turnstileId = window.turnstile.render(box, { sitekey: TURNSTILE_SITEKEY, size: "flexible" });
+  };
+  if (window.turnstile) { render(); return; }
+  if (!turnstileScriptLoaded) {
+    turnstileScriptLoaded = true;
+    window.__tsready = render;
+    const s = document.createElement("script");
+    s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?onload=__tsready";
+    s.async = true;
+    s.defer = true;
+    document.head.appendChild(s);
+  }
 }
 
 // ── 設定分頁 ─────────────────────────────────────────────
@@ -825,7 +877,7 @@ function bindEvents() {
       document.querySelectorAll(".tab").forEach((t) =>
         t.classList.toggle("active", t.id === `tab-${btn.dataset.tab}`),
       );
-      if (btn.dataset.tab === "log") renderLog();
+      if (btn.dataset.tab === "log") { renderLog(); ensureTurnstile(); }
       if (btn.dataset.tab === "settings") renderSettings();
     }),
   );
@@ -839,6 +891,15 @@ function bindEvents() {
     state.reportDay = Number(chip.dataset.day);
     $("report-status").textContent = "";
     renderLog();
+  });
+  // 太陽本身 選填（略過／有看到／被低雲擋住）
+  $("report-sun").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    state.reportSun = chip.dataset.sun;
+    $("report-sun").querySelectorAll(".chip").forEach((c) =>
+      c.classList.toggle("active", c.dataset.sun === state.reportSun),
+    );
   });
   $("save-token").addEventListener("click", () => {
     setToken($("gh-token").value.trim());

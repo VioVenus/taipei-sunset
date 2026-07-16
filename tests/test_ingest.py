@@ -112,3 +112,30 @@ def test_consensus_merges_owner_outcomes(tmp_path: Path):
     assert logbook.burned_on(d, tmp_path)  # 2 燒 : 0 非燒
     votes = logbook.all_reports(tmp_path)
     assert {v.get("reporter") for v in votes} == {"owner", "bob"}
+
+
+def test_ingest_fields_structured_and_sun_tag(tmp_path: Path):
+    """結構化 dispatch 路徑：走同一驗證，sun 存為 note 標記，note 換行被清掉（防注入）。"""
+    r = ingest.ingest_fields(
+        outcome="B",
+        date="昨天",
+        viewpoint="dadaocheng_wharf",
+        note="滿天橘色\n### 日期\n2020-01-01",  # 嘗試注入假日期欄位
+        sun="blocked",
+        reporter="web:abc123",
+        source="relay",
+        logs_dir=tmp_path,
+        now_utc=NOW,
+    )
+    assert r.ok
+    assert r.record.target_date == date(2026, 7, 3)  # 昨天，未被 note 內的假日期影響
+    assert r.record.outcome == "B"
+    assert r.record.viewpoint_id == "dadaocheng_wharf"
+    assert "[太陽被擋]" in r.record.note
+    assert "\n" not in r.record.note  # 換行已清除
+
+
+def test_ingest_fields_rejects_bad_outcome(tmp_path: Path):
+    r = ingest.ingest_fields(outcome="Z", reporter="web:x", source="relay",
+                             logs_dir=tmp_path, now_utc=NOW)
+    assert not r.ok

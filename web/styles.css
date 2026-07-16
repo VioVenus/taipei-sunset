@@ -110,6 +110,12 @@ main { padding: 12px; max-width: 560px; margin: 0 auto; }
 /* 回報日期切換（今天/昨天） */
 .report-day { margin-bottom: 10px; }
 
+/* 太陽本身 選填 + 蜜罐 + Turnstile */
+.sun-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0 10px; }
+.sun-row .chip { min-height: 36px; padding: 4px 12px; }
+.hp-field { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+#turnstile-box { margin: 8px 0; }
+
 /* 語言切換（topbar） */
 .lang-select { border: 1px solid var(--border); background: var(--surface); color: var(--text);
   border-radius: 999px; padding: 4px 8px; font-size: 0.8125rem; min-height: 36px; flex: none; }

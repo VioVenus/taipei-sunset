@@ -61,7 +61,15 @@
           <button class="report-btn oc" data-outcome="C">🔥 C<span data-i18n="log.oc">局部火燒</span></button>
           <button class="report-btn od" data-outcome="D">🌋 D<span data-i18n="log.od">全面火燒</span></button>
         </div>
+        <div class="sun-row" id="report-sun" role="group" aria-label="太陽本身">
+          <span class="muted small" data-i18n="log.sun"></span>
+          <button class="chip active" data-sun="" data-i18n="log.sunSkip">略過</button>
+          <button class="chip" data-sun="visible" data-i18n="log.sunVisible">有看到</button>
+          <button class="chip" data-sun="blocked" data-i18n="log.sunBlocked">被低雲擋住</button>
+        </div>
         <input type="text" id="report-note" data-i18n-ph="log.notePh" placeholder="" maxlength="80" />
+        <input type="text" id="report-hp" class="hp-field" tabindex="-1" autocomplete="off" aria-hidden="true" />
+        <div id="turnstile-box" class="hidden"></div>
         <p class="footnote" id="report-status"></p>
         <p class="muted small" data-i18n="log.explain"></p>
       </div>

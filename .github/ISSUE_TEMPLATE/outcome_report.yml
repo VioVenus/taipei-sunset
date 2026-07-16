@@ -11,7 +11,7 @@ body:
   - type: dropdown
     id: outcome
     attributes:
-      label: 今晚天空色彩（只看天空多精彩，跟看不看得到太陽本身無關）
+      label: 今晚天空色彩・實際結果（只看天空多精彩，跟看不看得到太陽本身無關）
       options:
         - A 灰暗沒色彩（低雲/降雨整片罩住）
         - B 橘色天空／霞光（看不看得到太陽本身都算）
