@@ -3,6 +3,20 @@ name = "taipei-sunset-report-relay"
 main = "report-relay.js"
 compatibility_date = "2024-11-01"
 
+# 可觀測性：開啟 Workers Logs（含每次叫用日誌）並保存在 dashboard，方便即時除錯。
+# 寫進設定檔的用意：之後任何一次 wrangler deploy 都會以此為準，
+# 不會把 dashboard 手動開的 Logs 設定洗掉（Cloudflare 提示的「保持一致」就是這件事）。
+# traces 屬 beta、成本較高，此中繼用不到，保持關閉（省略即預設關閉）。
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+persist = true
+head_sampling_rate = 1
+
 # 公開變數（可直接寫這裡；非機密）
 [vars]
 ALLOWED_ORIGIN = "https://viovenus.github.io"
