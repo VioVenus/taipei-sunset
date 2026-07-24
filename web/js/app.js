@@ -755,7 +755,9 @@ async function handleReport(outcome) {
   if (relayEnabled() && TURNSTILE_SITEKEY) {
     status.textContent = t("log.sending");
     const res = await submitViaRelay(relayCtx);
-    if (res === "captcha") { status.textContent = t("log.captcha"); return; }
+    // 太早按（token 未就緒）：記住這次的 outcome，驗證通過後由 Turnstile callback 自動補送。
+    if (res === "captcha") { state.pendingOutcome = outcome; status.textContent = t("log.captcha"); return; }
+    state.pendingOutcome = null;
     if (res === "sent") { remember(); status.textContent = t("log.relaySent"); renderLog(); return; }
     if (!getToken()) { status.textContent = t("log.relayFail"); return; }
     // res === "fail" 且有 token → 續往 ② 備援
@@ -802,7 +804,15 @@ function ensureTurnstile() {
   box.classList.remove("hidden");
   const render = () => {
     if (state.turnstileId != null || !window.turnstile || !box.isConnected) return;
-    state.turnstileId = window.turnstile.render(box, { sitekey: TURNSTILE_SITEKEY, size: "flexible" });
+    state.turnstileId = window.turnstile.render(box, {
+      sitekey: TURNSTILE_SITEKEY,
+      size: "flexible",
+      // 驗證通過後（含使用者太早按、由 execute 觸發的情況）自動補送當次回報，免二次點擊。
+      callback: () => {
+        const o = state.pendingOutcome;
+        if (o != null) { state.pendingOutcome = null; handleReport(o); }
+      },
+    });
   };
   if (window.turnstile) { render(); return; }
   if (!turnstileScriptLoaded) {
