@@ -958,6 +958,15 @@ async function init() {
   await loadViewpoints();
   await runAnalysis();
   if ("serviceWorker" in navigator && !DEMO) {
+    // 新版 SW 接管時自動重載一次 → 部署後免手動清快取即生效。
+    // hadController=false（首次安裝）不重載；refreshing 旗標防重載迴圈。
+    const hadController = !!navigator.serviceWorker.controller;
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing || !hadController) return;
+      refreshing = true;
+      location.reload();
+    });
     navigator.serviceWorker.register("sw.js").catch(() => {});
   }
 }
