@@ -746,28 +746,22 @@ async function handleReport(outcome) {
   const remember = () => {
     try { localStorage.setItem(MY_REPORT_KEY + reportDate, outcome); } catch { /* ignore */ }
   };
+  const relayCtx = { outcome, date: dateArg, viewpoint: findVp(state.selectedVpId)?.id || "", note, sun };
 
-  // ① 免帳號免跳轉：Worker 中繼（config 填了 RELAY_URL＋Turnstile 金鑰才啟用）
-  if (!getToken() && relayEnabled() && TURNSTILE_SITEKEY) {
-    const cfToken = window.turnstile && state.turnstileId != null
-      ? window.turnstile.getResponse(state.turnstileId) : "";
-    if (!cfToken) {
-      status.textContent = t("log.captcha");
-      window.turnstile?.execute?.(state.turnstileId);
-      return;
-    }
+  // ① 免帳號免跳轉：Worker 中繼優先（config 填了 RELAY_URL＋Turnstile 金鑰即啟用）。
+  //    維護者即使存了 token 也走這條——中繼穩定、免權限維護；owner 在聚合時僅算一票，
+  //    落在 reports.csv 與 outcomes.csv 對校準等價（見 logbook.all_reports）。
+  //    中繼硬失敗才落到下方 token／Issue Form 備援，永不死路。
+  if (relayEnabled() && TURNSTILE_SITEKEY) {
     status.textContent = t("log.sending");
-    const r = await submitReportViaRelay({
-      outcome, date: dateArg, viewpoint: findVp(state.selectedVpId)?.id || "",
-      note, sun, cfToken, hp: $("report-hp")?.value || "",
-    });
-    window.turnstile?.reset?.(state.turnstileId);
-    if (r.ok) { remember(); status.textContent = t("log.relaySent"); renderLog(); }
-    else { status.textContent = t("log.relayFail"); }
-    return;
+    const res = await submitViaRelay(relayCtx);
+    if (res === "captcha") { status.textContent = t("log.captcha"); return; }
+    if (res === "sent") { remember(); status.textContent = t("log.relaySent"); renderLog(); return; }
+    if (!getToken()) { status.textContent = t("log.relayFail"); return; }
+    // res === "fail" 且有 token → 續往 ② 備援
   }
 
-  // ② 維護者一鍵：fine-grained token → workflow_dispatch（sun 併入 note）
+  // ② 維護者備援：fine-grained token → workflow_dispatch（僅中繼未啟用或失敗時；sun 併入 note）
   if (getToken()) {
     if (!confirm(t("log.confirm", { date: reportDate, outcome }))) return;
     status.textContent = t("log.sending");
@@ -784,6 +778,19 @@ async function handleReport(outcome) {
   remember();
   renderLog();
   window.open(reportIssueUrl(outcome, note, dateArg, sunZh), "_blank", "noopener");
+}
+
+// 送出中繼：回傳 "sent" | "captcha" | "fail"。Turnstile token 尚未就緒時觸發驗證並回 "captcha"。
+async function submitViaRelay(ctx) {
+  const cfToken = window.turnstile && state.turnstileId != null
+    ? window.turnstile.getResponse(state.turnstileId) : "";
+  if (!cfToken) {
+    window.turnstile?.execute?.(state.turnstileId);
+    return "captcha";
+  }
+  const r = await submitReportViaRelay({ ...ctx, cfToken, hp: $("report-hp")?.value || "" });
+  window.turnstile?.reset?.(state.turnstileId);
+  return r.ok ? "sent" : "fail";
 }
 
 // ── Turnstile（僅在中繼啟用時載入；隱私友善、隱形驗證）──────
