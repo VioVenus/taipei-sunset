@@ -40,6 +40,7 @@ src/sunset/
 ├── review.py       # 週報：過去 7 天預測 vs 回報 + 未來展望
 ├── telegram_io.py  # Telegram 訊息格式化與 bot（繁中、區間機率）
 ├── notify.py       # 統一推播層：Telegram + ntfy 多通道
+├── pipeline.py     # 編排層：每日流程（分析→日誌→推播），供排程器共用
 └── cli.py          # python -m sunset <subcommand>
 ```
 
@@ -79,6 +80,20 @@ python -m sunset bot
 pytest
 ruff check .
 ```
+
+## 部署
+
+每日 16:20 的預測推播有兩個可用的部署目標，跑的是同一份編排程式碼
+（`sunset.pipeline`），沒有第二份實作：
+
+| 方式 | 位置 | 狀態 |
+|---|---|---|
+| GitHub Actions | `.github/workflows/daily_forecast.yml` | **正式部署**，零維運成本 |
+| Apache Airflow | [`airflow/`](airflow/README.md) | 供已有 Airflow 叢集的自架者 |
+
+Airflow 版把 retry 策略、任務邊界與補跑語意寫成顯式宣告並用測試釘住
+（例如 `catchup=False` —— 天氣 API 只供應未來預報，補跑會把今天的預報
+寫進過去的日期）。設計理由見 [airflow/README.md](airflow/README.md)。
 
 ## 推播通道：ntfy（最低摩擦，推薦）或 Telegram
 
