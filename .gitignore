@@ -5,3 +5,6 @@ __pycache__/
 .ruff_cache/
 build/
 dist/
+
+# Airflow 本地執行/測試產生的狀態目錄（見 airflow/README.md）
+.airflow_home/

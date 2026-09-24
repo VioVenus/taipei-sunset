@@ -20,10 +20,9 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sunset import analysis as analysis_mod
-from sunset import logbook, notify, review, telegram_io
+from sunset import logbook, notify, pipeline, review, telegram_io
 from sunset.geometry import load_viewpoints
 from sunset.solar import TAIPEI_TZ
-from sunset.weather import CWAFetcher, OpenMeteoFetcher
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -72,61 +71,17 @@ def _build_parser() -> argparse.ArgumentParser:
 def _analyze_all(
     args: argparse.Namespace, target_date, front: bool
 ) -> list[analysis_mod.AnalysisResult]:
-    viewpoints = load_viewpoints(args.viewpoints_file)
-    fetcher = OpenMeteoFetcher()
-    burned = logbook.burned_on(target_date - timedelta(days=1), args.logs_dir)
-    # CWA 交叉驗證（設 CWA_API_KEY 才啟用）：F-C0032-001 涵蓋全台 22 縣市，
-    # 按各點 city 查、同縣市快取共用，一日一縣市一次呼叫。
-    cwa = CWAFetcher(os.environ.get("CWA_API_KEY"))
-    cwa_cache: dict[str, analysis_mod.CWACrossCheck] = {}
-
-    def cross_check_for(city: str) -> analysis_mod.CWACrossCheck | None:
-        if city not in cwa_cache:
-            cwa_cache[city] = cwa.fetch_crosscheck(target_date, city)
-        result = cwa_cache[city]
-        return result if result.ok else None
-
-    return [
-        analysis_mod.analyze(
-            target_date,
-            vp,
-            fetcher,
-            burned_yesterday=burned,
-            front_within_48h=front,
-            cross_check=cross_check_for(vp.city),
-        )
-        for vp in viewpoints.values()
-    ]
+    # 實作在 sunset.pipeline：Airflow DAG 走同一份，避免兩份編排實作漂移。
+    return pipeline.analyze_all(
+        target_date,
+        front=front,
+        viewpoints_file=args.viewpoints_file,
+        logs_dir=args.logs_dir,
+    )
 
 
 def _log_predictions(results: list[analysis_mod.AnalysisResult], logs_dir: Path | None) -> None:
-    for r in results:
-        if r.probs is None:
-            continue
-        logbook.append_prediction(
-            logbook.PredictionRecord(
-                predicted_at_utc=r.generated_at_utc,
-                target_date=r.target_date,
-                viewpoint_id=r.viewpoint.id,
-                cloud_low=r.weather.cloud_low,
-                cloud_mid=r.weather.cloud_mid,
-                cloud_high=r.weather.cloud_high,
-                visibility=r.weather.visibility_m,
-                precip_prob=r.weather.precip_prob_evening,
-                rain_recent_flag=r.weather.rain_recent_flag,
-                burned_yesterday_flag=False if r.probs is None else any(
-                    "昨日實際有燒" in reason for reason in r.probs.reasons
-                ),
-                front_flag=any("鋒面" in reason for reason in r.probs.reasons),
-                prob_a=r.probs.a,
-                prob_b=r.probs.b,
-                prob_c=r.probs.c,
-                prob_d=r.probs.d,
-                verdict=r.verdict,
-                engine_version=r.probs.engine_version,
-            ),
-            logs_dir,
-        )
+    pipeline.log_predictions(results, logs_dir)
 
 
 def _send_or_note(text: str) -> int:
@@ -169,13 +124,7 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
 def _cmd_push_daily(args: argparse.Namespace) -> int:
     today = datetime.now(TAIPEI_TZ).date()
     results = _analyze_all(args, today, args.front)
-    # 每日廣播頭條只用『已實地驗證』點位（幾何可信）；草稿點仍出現在各區摘要與 app。
-    verified = [r for r in results if not r.viewpoint.needs_field_verification]
-    recommended = analysis_mod.recommend(verified) or analysis_mod.recommend(results)
-    if recommended is None:
-        text = f"❓ {today.isoformat()} 日落判定：資料不足（天氣 API 失敗），請以現場目視為準。"
-    else:
-        text = telegram_io.format_daily_push(recommended, results)
+    text = pipeline.daily_push_text(results, today)
     print(text)
     _log_predictions(results, args.logs_dir)
     if not args.no_send:
