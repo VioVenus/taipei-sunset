@@ -38,7 +38,8 @@ export async function submitReportViaRelay({ outcome, date, viewpoint, note, sun
     });
     if (resp.ok) return { ok: true };
     const data = await resp.json().catch(() => ({}));
-    return { ok: false, status: resp.status, error: data.error };
+    // 中繼轉發 GitHub 失敗時回 {error:"dispatch", status:<GitHub 狀態碼>}：保留上游碼才查得出原因
+    return { ok: false, status: data.status || resp.status, error: data.error };
   } catch (e) {
     return { ok: false, status: 0, error: e.message };
   }

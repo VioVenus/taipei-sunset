@@ -17,6 +17,11 @@ invocation_logs = true
 persist = true
 head_sampling_rate = 1
 
+# 準點排程（UTC）：GitHub 自己的 schedule 常遲到 5–8 小時，改由 Worker 準點觸發
+# workflow_dispatch。Worker 以觸發時的 UTC 小時對應 workflow（見 CRON_WORKFLOWS）。
+[triggers]
+crons = ["20 8 * * *", "15 11 * * *"]  # 16:20 台北日落判定、19:15 台北回報提示
+
 # 公開變數（可直接寫這裡；非機密）
 [vars]
 ALLOWED_ORIGIN = "https://viovenus.github.io"
@@ -24,7 +29,7 @@ GH_OWNER = "VioVenus"
 GH_REPO = "taipei-sunset"
 
 # 機密用指令設定，不要寫在檔案裡：
-#   npx wrangler secret put GH_TOKEN          # fine-grained PAT，Contents: Read and write
+#   npx wrangler secret put GH_TOKEN          # classic PAT 勾 repo（回報＋準點排程都靠它）
 #   npx wrangler secret put TURNSTILE_SECRET  # Cloudflare Turnstile 密鑰
 
 # 選用：跨節點速率限制（未綁定則自動退回 Cache API 軟限制）

@@ -16,12 +16,12 @@ from __future__ import annotations
 
 import os
 from dataclasses import asdict
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from sunset import analysis as analysis_mod
-from sunset import logbook, notify, telegram_io
+from sunset import leadtime, logbook, notify, solar, telegram_io
 from sunset.geometry import load_viewpoints
 from sunset.weather import CWAFetcher, OpenMeteoFetcher
 
@@ -66,14 +66,19 @@ def analyze_all(
     ]
 
 
+def headline(results: list[analysis_mod.AnalysisResult]) -> analysis_mod.AnalysisResult | None:
+    """每日廣播的頭條點位：優先『已實地驗證』點位（幾何可信），否則全體中推薦。"""
+    verified = [r for r in results if not r.viewpoint.needs_field_verification]
+    return analysis_mod.recommend(verified) or analysis_mod.recommend(results)
+
+
 def daily_push_text(results: list[analysis_mod.AnalysisResult], target_date: date) -> str:
     """組每日廣播文字。
 
-    頭條只用『已實地驗證』點位（幾何可信）；草稿點仍出現在各區摘要與 app。
+    頭條見 headline()；草稿點仍出現在各區摘要與 app。
     全部點位都資料不足時回退為明示的「資料不足」訊息，不做假精確。
     """
-    verified = [r for r in results if not r.viewpoint.needs_field_verification]
-    recommended = analysis_mod.recommend(verified) or analysis_mod.recommend(results)
+    recommended = headline(results)
     if recommended is None:
         return f"❓ {target_date.isoformat()} 日落判定：資料不足（天氣 API 失敗），請以現場目視為準。"
     return telegram_io.format_daily_push(recommended, results)
@@ -82,10 +87,18 @@ def daily_push_text(results: list[analysis_mod.AnalysisResult], target_date: dat
 def prediction_records(
     results: list[analysis_mod.AnalysisResult],
 ) -> list[logbook.PredictionRecord]:
-    """把分析結果轉成待寫入的預測列；資料不足（probs is None）的點位略過。"""
+    """把分析結果轉成待寫入的預測列。
+
+    略過：資料不足（probs is None）的點位，以及**逾時預測**——距該點日落不足
+    leadtime.MIN_LEAD_MINUTES 才產生的結果（排程遲到時會發生），那等於拿已發生
+    的天氣「預測」過去，寫進日誌會汙染校準。理由見 sunset/leadtime.py。
+    """
     records: list[logbook.PredictionRecord] = []
     for r in results:
         if r.probs is None:
+            continue
+        vp = r.viewpoint
+        if not leadtime.is_timely(r.generated_at_utc, r.target_date, vp.lat, vp.lon):
             continue
         records.append(
             logbook.PredictionRecord(
@@ -130,6 +143,62 @@ def log_predictions(
 ) -> int:
     """analyze → 寫日誌的便捷組合（CLI 用）。"""
     return write_predictions(prediction_records(results), logs_dir)
+
+
+# ── 多重觸發下的去重與推播節制 ──────────────────────────────────
+# GitHub 排程會遲到數小時，所以一天排了多個時段＋（選用）Cloudflare 準點觸發。
+# 下面兩個規則讓「多觸發」不變成「多推播」。
+
+# 同一目標日在這段時間內已有有效預測 → 本次觸發視為重複，整個略過
+DEDUPE_MINUTES = 90
+# 台北時間這段時間內只寫日誌不推播（遲到的 run 不要半夜吵人）
+QUIET_HOURS = (23, 8)  # [23:00, 08:00)
+
+
+def timely_rows_for(
+    target_date: date, coords: dict[str, tuple[float, float]], logs_dir: Path | None = None
+) -> list[dict[str, str]]:
+    """日誌中該目標日的有效（非逾時）預測列。"""
+    iso = target_date.isoformat()
+    return [
+        r
+        for r in logbook.read_predictions(logs_dir)
+        if r["target_date"] == iso and leadtime.row_is_timely(r, coords)
+    ]
+
+
+def _issued_at(row: dict[str, str]) -> datetime:
+    at = datetime.fromisoformat(row["predicted_at_utc"])
+    return at if at.tzinfo else at.replace(tzinfo=UTC)
+
+
+def is_duplicate_trigger(now_utc: datetime, prior: list[dict[str, str]]) -> bool:
+    """稍早（DEDUPE_MINUTES 內）已有同目標日的有效預測 → 這次觸發是重複的。"""
+    if not prior:
+        return False
+    latest = max(_issued_at(r) for r in prior)
+    return now_utc - latest < timedelta(minutes=DEDUPE_MINUTES)
+
+
+def push_decision(
+    now_utc: datetime,
+    prior: list[dict[str, str]],
+    head: analysis_mod.AnalysisResult | None,
+) -> str:
+    """這次要不要推播：quiet（夜間）／first（當日首推）／changed（頭條判定變了）／unchanged。"""
+    hour = now_utc.astimezone(solar.TAIPEI_TZ).hour
+    start, end = QUIET_HOURS
+    if hour >= start or hour < end:
+        return "quiet"
+    if not prior:
+        return "first"
+    if head is None:
+        return "unchanged"  # 稍早已推過，資料不足不再重複打擾
+    same_point = [r for r in prior if r["viewpoint_id"] == head.viewpoint.id]
+    if not same_point:
+        return "changed"  # 頭條換了點位
+    last = max(same_point, key=_issued_at)
+    return "unchanged" if last["verdict"] == head.verdict else "changed"
 
 
 def send(text: str) -> list[str]:

@@ -1,7 +1,9 @@
 """週報：回顧過去 7 天的預測 vs 實際回報 + 未來展望。
 
 紀律：
-- 回顧配對用「當日最後一次預測」對 outcome（point-in-time）。
+- 回顧配對用「當日最後一次**有效**預測」對 outcome（point-in-time）。
+  有效＝距日落 ≥ leadtime.MIN_LEAD_MINUTES 發出；排程遲到產生的日落後
+  「預測」帶 look-ahead，一律不納入（見 sunset/leadtime.py）。
 - 樣本 <60 天只做觀察陳述，不做任何自動調參（Phase 2 門檻）。
 - 未來展望一律標註初步、信心低（歷史教訓 5）。
 """
@@ -12,8 +14,9 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
-from sunset import logbook
+from sunset import leadtime, logbook
 from sunset.analysis import VERDICT_GO, AnalysisResult
+from sunset.geometry import load_viewpoints
 from sunset.logbook import BURN_OUTCOMES
 from sunset.scoring import prob_interval
 
@@ -58,9 +61,14 @@ class WeeklyStats:
         return [d for d in self.days if d.burned]
 
 
-def build_weekly_stats(end_date: date, logs_dir: Path | None = None) -> WeeklyStats:
-    """彙整 [end_date-6, end_date] 的預測與回報。"""
-    predictions = logbook.read_predictions(logs_dir)
+def build_weekly_stats(
+    end_date: date, logs_dir: Path | None = None, viewpoints_file: Path | None = None
+) -> WeeklyStats:
+    """彙整 [end_date-6, end_date] 的預測與回報（只採有效預測）。"""
+    coords = {vp.id: (vp.lat, vp.lon) for vp in load_viewpoints(viewpoints_file).values()}
+    predictions = [
+        r for r in logbook.read_predictions(logs_dir) if leadtime.row_is_timely(r, coords)
+    ]
     pool = logbook.all_reports(logs_dir)
     days: list[DayReview] = []
     for offset in range(REVIEW_DAYS - 1, -1, -1):

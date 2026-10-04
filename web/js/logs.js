@@ -2,6 +2,7 @@
 // 週統計邏輯對齊 src/sunset/review.py（觀察陳述，不調參）。
 
 import { BRANCH, REPO } from "./config.js";
+import { sunsetTimeMs } from "./solar.js";
 
 export { BRANCH, REPO };
 const RAW_BASE = `https://raw.githubusercontent.com/${REPO}/${BRANCH}/data/logs`;
@@ -96,8 +97,23 @@ function consensus(rows) {
   };
 }
 
-/** 過去 7 天（含 endDateStr）配對：每日最後一次預測 vs 最後一筆回報。 */
-export function weeklyStats(endDateStr, predictions, outcomes) {
+// 對齊 src/sunset/leadtime.py：距該點日落 ≥ 60 分鐘發出才算有效預測。
+// GitHub 排程常遲到數小時，日落後才跑出的「預測」帶 look-ahead，不能拿來對帳。
+export const MIN_LEAD_MIN = 60;
+const REF_COORD = [25.033, 121.5654]; // 未建檔點位退回台北參考座標
+
+/** predictions.csv 的一列是否為有效預測。coords：{viewpoint_id: [lat, lon]}。 */
+export function rowIsTimely(row, coords = {}) {
+  const at = Date.parse(row.predicted_at_utc);
+  if (!Number.isFinite(at) || !/^\d{4}-\d{2}-\d{2}$/.test(row.target_date || "")) return false;
+  const [lat, lon] = coords[row.viewpoint_id] || REF_COORD;
+  const sunset = sunsetTimeMs(row.target_date, lat, lon);
+  return sunset !== null && sunset - at >= MIN_LEAD_MIN * 60000;
+}
+
+/** 過去 7 天（含 endDateStr）配對：每日最後一次「有效」預測 vs 最後一筆回報。 */
+export function weeklyStats(endDateStr, allPredictions, outcomes, coords = {}) {
+  const predictions = allPredictions.filter((r) => rowIsTimely(r, coords));
   const days = [];
   const end = new Date(`${endDateStr}T00:00:00Z`).getTime();
   for (let off = 6; off >= 0; off--) {

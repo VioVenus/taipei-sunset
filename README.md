@@ -136,13 +136,13 @@ Token **絕不落地 repo**（程式碼與日誌皆不含 secrets）。
 
 | Workflow | 觸發 | 台北時間 | 內容 |
 |---|---|---|---|
-| `daily_forecast.yml` | cron `20 8 * * *` | 每日 16:20 | 分析 → 推播判定 → commit 預測日誌 |
-| `outcome_prompt.yml` | cron `15 11 * * *` | 每日 19:15 | 推播詢問今晚實際結果 A/B/C/D |
+| `daily_forecast.yml` | Worker 準點 16:20 ＋ cron 10:17／12:47／14:17／16:20 | 每日 | 分析 → 推播判定 → commit 預測日誌（自動去重） |
+| `outcome_prompt.yml` | Worker 準點 19:15 ＋ cron `15 11 * * *` | 每日 19:15 | 推播詢問今晚實際結果 A/B/C/D（23:00 後略過） |
 | `weekly_review.yml` | cron `0 12 * * 0` | 週日 20:00 | 週報：7 天預測 vs 回報 + 未來展望 |
 | `on_demand_forecast.yml` | 手動 Run workflow | 隨時 | 查任意日期×點位，推播 + 記日誌 |
 | `on_demand_report.yml` | 手動 Run workflow | 隨時 | 回報 A/B/C/D → commit outcomes.csv |
 
-註：GitHub Actions cron 有 ±數分鐘飄移，可接受。
+註：GitHub Actions 的 cron **會遲到數小時**（2026-07～10 實測中位數 2.9 小時），所以：準點靠 Cloudflare Worker 的 Cron Triggers（見 [docs/report-relay.md](docs/report-relay.md) 第 5 步），GitHub 多排幾個時段當備援；觸發太晚時自動改預測明天，日落前 60 分鐘內不產生「今天」的預測（見 [lessons 7](docs/lessons.md)）。
 
 **隨時查詢／回報（手機可用）**：裝 GitHub 手機 app → 本 repo →
 Actions → 選 `on-demand-forecast`（或 `on-demand-report`）→ Run workflow →
@@ -157,7 +157,7 @@ Actions → 選 `on-demand-forecast`（或 `on-demand-report`）→ Run workflow
 - `data/logs/predictions.csv`：每次預測一列，**寫入後永不修改**；
   同一天多次預測允許多列（以 `predicted_at_utc` 區分）。
 - `data/logs/outcomes.csv`：實際結果回報。
-- 校準時只用「當日最後一次 16:20 前後的預測」對 outcome。
+- 校準時只用「當日最後一次**有效**預測」對 outcome——有效＝距該點日落 ≥ 60 分鐘發出（`sunset/leadtime.py`）。排程遲到產生的日落後列保留在檔中但讀取時一律忽略。
 - `engine_version` 自 `v1.0.0` 起算，任何規則常數變動都要 bump。
 
 ## PWA（手機 App）

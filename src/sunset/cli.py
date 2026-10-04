@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sunset import analysis as analysis_mod
-from sunset import logbook, notify, pipeline, review, telegram_io
+from sunset import leadtime, logbook, notify, pipeline, review, solar, telegram_io
 from sunset.geometry import load_viewpoints
 from sunset.solar import TAIPEI_TZ
 
@@ -122,18 +122,61 @@ def _cmd_analyze(args: argparse.Namespace) -> int:
 
 
 def _cmd_push_daily(args: argparse.Namespace) -> int:
-    today = datetime.now(TAIPEI_TZ).date()
-    results = _analyze_all(args, today, args.front)
-    text = pipeline.daily_push_text(results, today)
+    # 排程常遲到數小時，且一天排了多個時段（見 daily_forecast.yml）：
+    # ① 今天已來不及（距最早日落 < MIN_LEAD）→ 改預測明天，遲到的 run 仍有用
+    # ② 稍早已有同目標日的有效預測 → 視為重複觸發，略過
+    # ③ 推播只在當日首推或頭條判定改變時送，夜間只寫日誌
+    now = datetime.now(UTC)
+    today = now.astimezone(TAIPEI_TZ).date()
+    viewpoints = load_viewpoints(args.viewpoints_file)
+    coords = {v.id: (v.lat, v.lon) for v in viewpoints.values()}
+    target = leadtime.forecast_target_date(now, coords.values())
+    prior = pipeline.timely_rows_for(target, coords, args.logs_dir)
+    if pipeline.is_duplicate_trigger(now, prior):
+        print(f"（{target.isoformat()} 稍早已有有效預測，略過本次重複觸發）", file=sys.stderr)
+        return 0
+
+    results = _analyze_all(args, target, args.front)
+    text = pipeline.daily_push_text(results, target)
+    if target != today:
+        text = "⏰ 今天的出發時間已過，以下是明天的預報\n" + text
     print(text)
+    written = len(pipeline.prediction_records(results))
     _log_predictions(results, args.logs_dir)
-    if not args.no_send:
-        return _send_or_note(text)
-    return 0
+    print(f"（預測日誌：{target.isoformat()} 寫入 {written} 列）", file=sys.stderr)
+    if args.no_send:
+        return 0
+
+    decision = pipeline.push_decision(now, prior, pipeline.headline(results))
+    if decision == "quiet":
+        print("（夜間時段只寫日誌，不推播）", file=sys.stderr)
+        return 0
+    if decision == "unchanged":
+        print("（頭條判定與稍早相同，不重複推播）", file=sys.stderr)
+        return 0
+    if decision == "changed":
+        text = "🔄 判定更新\n" + text
+    return _send_or_note(text)
+
+
+# 回報提示只在「日落後到深夜」這段送：排程遲到到半夜時不再吵醒人問「今晚如何」。
+OUTCOME_PROMPT_LATEST_HOUR = 23
+
+
+def outcome_prompt_due(now: datetime) -> bool:
+    """現在（含時區）是否落在「今天日落後～深夜」的回報提示時段。"""
+    local = now.astimezone(TAIPEI_TZ)
+    sunset = solar.sunset_time(local.date(), leadtime.REF_LAT, leadtime.REF_LON)
+    return sunset <= local and local.hour < OUTCOME_PROMPT_LATEST_HOUR
 
 
 def _cmd_prompt_outcome(args: argparse.Namespace) -> int:
-    today = datetime.now(TAIPEI_TZ).date()
+    now = datetime.now(TAIPEI_TZ)
+    today = now.date()
+    if not outcome_prompt_due(now):
+        window = f"日落後～{OUTCOME_PROMPT_LATEST_HOUR}:00"
+        print(f"（{now:%H:%M} 不在{window}之間，略過回報提示）", file=sys.stderr)
+        return 0
     text = telegram_io.format_outcome_prompt(today)
     print(text)
     return _send_or_note(text)
@@ -141,7 +184,7 @@ def _cmd_prompt_outcome(args: argparse.Namespace) -> int:
 
 def _cmd_weekly_review(args: argparse.Namespace) -> int:
     today = datetime.now(TAIPEI_TZ).date()
-    stats = review.build_weekly_stats(today, args.logs_dir)
+    stats = review.build_weekly_stats(today, args.logs_dir, args.viewpoints_file)
     outlooks: list[analysis_mod.AnalysisResult] = []
     if not args.no_outlook:
         for offset in (1, 2):

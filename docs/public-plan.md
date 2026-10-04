@@ -115,11 +115,13 @@ parity fixtures 重生成；變更理由必須引用日誌統計，不引用單�
 - **A. 本機 SSH 推送（推薦，SSH 金鑰不受 workflow scope 限制）**
   ```bash
   git remote add public git@github.com:<owner>/taipei-sunset.git
-  git push --force public <本分支>:main
+  git push --force public <本分支>:main   # ⚠️ 只限「首次」建立空 repo 時
   ```
+  ⚠️ 公開 repo 開始運作後**絕不可再 force-push**：它會自己長出 bot 日誌 commit 與 PR，
+  force 會把它們抹掉（見 lessons 8）。之後一律用 sync-public（先 merge 再快轉推送）。
 - **B. sync-public workflow（無本機環境時）**：secret `PUBLIC_REPO_TOKEN` 必須是
   **classic** PAT 且勾 `repo` + `workflow`（fine-grained PAT 無法推 workflow 檔）。
-  Actions → sync-public → confirm 輸入 `push`。同步後可刪除該 token。
+  Actions → sync-public → confirm 輸入 `push`（先合併公開 main 再快轉推送，不會覆蓋 commit）。
 
 3. 改 `web/js/config.js` 的 REPO 為新名稱（單一檔案，一行）→ commit
 4. 新 repo Settings：

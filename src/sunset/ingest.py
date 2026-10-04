@@ -155,7 +155,7 @@ def _ingest_fields(
     sun_tag = ""
     if "擋" in sun_raw or "blocked" in sun_raw.lower() or "tapado" in sun_raw.lower():
         sun_tag = "[太陽被擋] "
-    elif "看得到" in sun_raw or "visible" in sun_raw.lower():
+    elif "看到" in sun_raw or "看得到" in sun_raw or "visible" in sun_raw.lower():
         sun_tag = "[有看到太陽] "
 
     record = logbook.ReportRecord(

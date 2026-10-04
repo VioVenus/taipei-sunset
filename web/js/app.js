@@ -697,7 +697,8 @@ async function renderLog() {
   $("history-card").innerHTML = `<h2>${esc(t("log.histTitle"))}</h2><p class="muted small">…</p>`;
 
   const { predictions, outcomes, fresh } = await loadLogs();
-  const stats = weeklyStats(today, predictions, outcomes);
+  const coords = Object.fromEntries(state.viewpoints.map((v) => [v.id, [v.lat, v.lon]]));
+  const stats = weeklyStats(today, predictions, outcomes, coords);
 
   const rows = [];
   rows.push(esc(t("log.wPredicted", { p: stats.predictedCount, r: stats.reportedCount })));
@@ -742,7 +743,7 @@ async function handleReport(outcome) {
   const reportDate = taipeiDatePlus(-state.reportDay);
   const dateArg = state.reportDay === 1 ? "昨天" : "今天";
   const sun = state.reportSun; // "" | visible | blocked
-  const sunZh = sun === "blocked" ? "太陽被低雲擋住" : sun === "visible" ? "有看到太陽本身" : "";
+  const sunZh = sunZhOf(sun);
   const remember = () => {
     try { localStorage.setItem(MY_REPORT_KEY + reportDate, outcome); } catch { /* ignore */ }
   };
@@ -755,12 +756,23 @@ async function handleReport(outcome) {
   if (relayEnabled() && TURNSTILE_SITEKEY) {
     status.textContent = t("log.sending");
     const res = await submitViaRelay(relayCtx);
-    // 太早按（token 未就緒）：記住這次的 outcome，驗證通過後由 Turnstile callback 自動補送。
-    if (res === "captcha") { state.pendingOutcome = outcome; status.textContent = t("log.captcha"); return; }
+    // 太早按（token 未就緒）：記住這次的 outcome，驗證通過後由 Turnstile callback 自動補送；
+    // 看門狗確保「驗證中」不會無限等待（腳本被擋、挑戰卡住）——逾時就給表單備援。
+    if (res.state === "captcha") {
+      state.pendingOutcome = outcome;
+      status.textContent = t("log.captcha");
+      armCaptchaWatchdog(outcome);
+      return;
+    }
+    clearCaptchaWatchdog();
     state.pendingOutcome = null;
-    if (res === "sent") { remember(); status.textContent = t("log.relaySent"); renderLog(); return; }
-    if (!getToken()) { status.textContent = t("log.relayFail"); return; }
-    // res === "fail" 且有 token → 續往 ② 備援
+    if (res.state === "sent") { remember(); status.textContent = t("log.relaySent"); renderLog(); return; }
+    if (!getToken()) {
+      const key = res.turnstile ? "log.captchaFail" : "log.relayFail";
+      showReportFallback(t(key, { code: res.code }), outcome);
+      return;
+    }
+    // 中繼失敗且有 token → 續往 ② 備援
   }
 
   // ② 維護者備援：fine-grained token → workflow_dispatch（僅中繼未啟用或失敗時；sun 併入 note）
@@ -782,17 +794,60 @@ async function handleReport(outcome) {
   window.open(reportIssueUrl(outcome, note, dateArg, sunZh), "_blank", "noopener");
 }
 
-// 送出中繼：回傳 "sent" | "captcha" | "fail"。Turnstile token 尚未就緒時觸發驗證並回 "captcha"。
+const sunZhOf = (sun) => (sun === "blocked" ? "太陽被低雲擋住" : sun === "visible" ? "有看到太陽本身" : "");
+
+// 失敗時的出口：訊息＋預填好的 GitHub 表單連結（日期、太陽、備註都帶上），永不死路。
+function showReportFallback(message, outcome) {
+  const url = reportIssueUrl(
+    outcome,
+    $("report-note").value.trim(),
+    state.reportDay === 1 ? "昨天" : "今天",
+    sunZhOf(state.reportSun),
+  );
+  $("report-status").innerHTML =
+    `${esc(message)} <a href="${esc(url)}" target="_blank" rel="noopener">${esc(t("log.fallbackLink"))}</a>`;
+}
+
+const CAPTCHA_TIMEOUT_MS = 20000;
+let captchaTimer = null;
+function clearCaptchaWatchdog() {
+  clearTimeout(captchaTimer);
+  captchaTimer = null;
+}
+function armCaptchaWatchdog(outcome) {
+  clearCaptchaWatchdog();
+  captchaTimer = setTimeout(() => {
+    if (state.pendingOutcome !== outcome) return;
+    state.pendingOutcome = null;
+    showReportFallback(t("log.captchaSlow"), outcome);
+  }, CAPTCHA_TIMEOUT_MS);
+}
+// Turnstile 本身出錯（載入失敗、網域不符…）：若有等待中的回報，立刻給備援、不必等看門狗
+function failPendingCaptcha(code) {
+  const o = state.pendingOutcome;
+  if (o == null) return;
+  state.pendingOutcome = null;
+  clearCaptchaWatchdog();
+  showReportFallback(t("log.captchaFail", { code }), o);
+}
+
+// 送出中繼：回傳 {state: "sent"|"captcha"|"fail", code}。token 未就緒時觸發驗證並回 captcha。
+// code 是中繼回的錯誤碼（captcha/origin/dispatch 401…），顯示給使用者以便回報問題。
 async function submitViaRelay(ctx) {
-  const cfToken = window.turnstile && state.turnstileId != null
-    ? window.turnstile.getResponse(state.turnstileId) : "";
-  if (!cfToken) {
-    window.turnstile?.execute?.(state.turnstileId);
-    return "captcha";
-  }
+  if (state.turnstileError) return { state: "fail", code: state.turnstileError, turnstile: true };
+  let cfToken = "";
+  try {
+    cfToken = window.turnstile && state.turnstileId != null
+      ? window.turnstile.getResponse(state.turnstileId) || "" : "";
+    if (!cfToken) window.turnstile?.execute?.(state.turnstileId);
+  } catch { /* 非 execute 模式的 widget 呼叫 execute 會丟錯；等 callback 或看門狗即可 */ }
+  if (!cfToken) return { state: "captcha" };
   const r = await submitReportViaRelay({ ...ctx, cfToken, hp: $("report-hp")?.value || "" });
-  window.turnstile?.reset?.(state.turnstileId);
-  return r.ok ? "sent" : "fail";
+  try { window.turnstile?.reset?.(state.turnstileId); } catch { /* ignore */ }
+  if (r.ok) return { state: "sent" };
+  const code = [r.error || (r.status ? "" : "network"), r.status && r.status !== 200 ? r.status : ""]
+    .filter(Boolean).join(" ");
+  return { state: "fail", code: code || "unknown" };
 }
 
 // ── Turnstile（僅在中繼啟用時載入；隱私友善、隱形驗證）──────
@@ -802,6 +857,7 @@ function ensureTurnstile() {
   const box = $("turnstile-box");
   if (!box) return;
   box.classList.remove("hidden");
+  const reset = () => { try { window.turnstile?.reset?.(state.turnstileId); } catch { /* ignore */ } };
   const render = () => {
     if (state.turnstileId != null || !window.turnstile || !box.isConnected) return;
     state.turnstileId = window.turnstile.render(box, {
@@ -809,9 +865,17 @@ function ensureTurnstile() {
       size: "flexible",
       // 驗證通過後（含使用者太早按、由 execute 觸發的情況）自動補送當次回報，免二次點擊。
       callback: () => {
+        state.turnstileError = null;
         const o = state.pendingOutcome;
-        if (o != null) { state.pendingOutcome = null; handleReport(o); }
+        if (o != null) { state.pendingOutcome = null; clearCaptchaWatchdog(); handleReport(o); }
       },
+      // 錯誤碼見 Cloudflare 文件（例 110200＝網域未列入 widget 的 Hostname）
+      "error-callback": (code) => {
+        state.turnstileError = String(code || "error");
+        failPendingCaptcha(state.turnstileError);
+      },
+      "expired-callback": reset,
+      "timeout-callback": reset,
     });
   };
   if (window.turnstile) { render(); return; }
@@ -819,9 +883,14 @@ function ensureTurnstile() {
     turnstileScriptLoaded = true;
     window.__tsready = render;
     const s = document.createElement("script");
-    s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?onload=__tsready";
+    s.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&onload=__tsready";
     s.async = true;
     s.defer = true;
+    // 被擋（廣告攔截、公司防火牆）時不能讓使用者乾等
+    s.onerror = () => {
+      state.turnstileError = "load";
+      failPendingCaptcha("load");
+    };
     document.head.appendChild(s);
   }
 }

@@ -1,9 +1,19 @@
-# 每日 16:20（台北）日落判定推播 + 預測日誌 commit。
-# 16:20 Asia/Taipei = 08:20 UTC。GitHub Actions cron 有 ±數分鐘飄移，可接受。
+# 每日日落判定推播 + 預測日誌 commit。
+#
+# 為何排四個時段：GitHub Actions 的 schedule 會大幅遲到（2026-07～10 實測中位數
+# 晚 2.9 小時、近期常晚 5–8 小時，單一 16:20 時段多在 21:00 後才跑）。多排幾個
+# 較早的時段提高「日落前至少有一次有效預測」的機率；重複觸發由程式去重：
+#   - 今天來不及（距日落 < 60 分）→ 自動改預測明天（sunset/leadtime.py）
+#   - 90 分鐘內已有同日有效預測 → 略過；推播只在當日首推／判定改變時送
+# 準點的主觸發建議交給 Cloudflare Worker cron（見 docs/report-relay.md「準點排程」）。
+# 時段（台北）：10:17（初步）、12:47、14:17、16:20 = UTC 02:17、04:47、06:17、08:20
 name: daily-forecast
 
 on:
   schedule:
+    - cron: "17 2 * * *"
+    - cron: "47 4 * * *"
+    - cron: "17 6 * * *"
     - cron: "20 8 * * *"
   workflow_dispatch:
     inputs:
@@ -23,9 +33,9 @@ jobs:
   forecast:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 

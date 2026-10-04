@@ -1,12 +1,17 @@
 # PWA 部署到 GitHub Pages。
-# 日誌 commit（daily/on-demand）也會觸發，讓站內打包的離線副本每日更新；
-# app 執行時仍優先抓 raw.githubusercontent 取最新日誌。
+# 寫日誌的 workflow 完成後也重新部署，讓站內打包的離線副本跟上；app 執行時仍優先抓
+# raw.githubusercontent 取最新日誌。注意：bot 以 GITHUB_TOKEN 推送的 commit **不會**
+# 觸發 push 事件（GitHub 防遞迴設計），所以必須靠 workflow_run（2026-07～10 離線副本
+# 就因此停在 7 月沒更新）。
 name: deploy-pages
 
 on:
   push:
     branches: [main]
     paths: ["web/**", "data/**", ".github/workflows/pages.yml"]
+  workflow_run:
+    workflows: [daily-forecast, ingest-dispatch, ingest-report, on-demand-report]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -23,14 +28,16 @@ jobs:
     runs-on: ubuntu-latest
     # 只在公開 repo 部署 Pages。私有 dev repo（VioVenus/Claude）無 Pages 權限，
     # configure-pages 會回 "Resource not accessible by integration" — 在該處直接跳過。
-    if: github.repository == 'VioVenus/taipei-sunset'
+    if: >-
+      github.repository == 'VioVenus/taipei-sunset' &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 

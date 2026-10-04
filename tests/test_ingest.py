@@ -139,3 +139,14 @@ def test_ingest_fields_rejects_bad_outcome(tmp_path: Path):
     r = ingest.ingest_fields(outcome="Z", reporter="web:x", source="relay",
                              logs_dir=tmp_path, now_utc=NOW)
     assert not r.ok
+
+
+def test_ingest_fields_sun_tag_matches_relay_wording(tmp_path: Path):
+    """Worker 送的是中文措辭（有看到太陽本身／太陽被低雲擋住），兩種都要正確標註。"""
+    for sun, tag in (("有看到太陽本身", "[有看到太陽]"), ("太陽被低雲擋住", "[太陽被擋]")):
+        r = ingest.ingest_fields(outcome="B", sun=sun, reporter=f"web:{tag}", source="relay",
+                                 logs_dir=tmp_path, now_utc=NOW)
+        assert r.ok
+    notes = [row["note"] for row in logbook.read_reports(tmp_path)]
+    assert notes[0].startswith("[有看到太陽]")
+    assert notes[1].startswith("[太陽被擋]")

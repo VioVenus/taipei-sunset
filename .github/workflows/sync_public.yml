@@ -1,16 +1,23 @@
-# 一次性遷移／之後可重複使用的同步：把本分支完整推到公開 repo taipei-sunset 的 main。
-# 需要 secret PUBLIC_REPO_TOKEN：**classic** PAT，勾 `repo` + `workflow` 兩個 scope。
-# 為何必須 classic + workflow：本專案含 .github/workflows/*，GitHub 拒絕缺 workflow
-# scope 的 PAT 推送工作流程檔；fine-grained PAT 無對應權限、無法推 workflow 檔。
-# （classic `repo` 會授權所有 repo，同步完成後可刪除此 token。）
-# 替代路徑：本機以 SSH 推送（SSH 金鑰不受 workflow scope 限制），見 docs/public-plan.md §8。
+# 把 dev 分支推到公開 repo taipei-sunset 的 main —— **永不 force-push**。
+#
+# 為何不能 force：公開 repo 會自己長出 commit —— 每日 bot 日誌（append-only
+# 的 predictions/reports/outcomes.csv）與直接在公開 repo 合併的 PR。舊版
+# `git push --force HEAD:main` 會把這些全部覆蓋掉（2026-07 就因此遺失過
+# predictions.csv 的早期紀錄）。現在的流程：
+#   1. 抓公開 main；若它不在本分支歷史中，先 merge 進來（bot 只動 data/logs，
+#      dev 分支不改那些檔，通常零衝突；真的衝突就整個失敗、什麼都不推）
+#   2. 一般 push（快轉）。期間若 bot 又推了新 commit → 重試至多 3 次
+#
+# 需要 secret PUBLIC_REPO_TOKEN：**classic** PAT，勾 `repo` + `workflow` 兩個 scope
+# （本專案含 .github/workflows/*，缺 workflow scope 的 PAT 推不動工作流程檔）。
+# 替代路徑：本機以 SSH 推送，見 docs/public-plan.md §8。
 name: sync-public
 
 on:
   workflow_dispatch:
     inputs:
       confirm:
-        description: "輸入 push 以確認（會 force-push 覆蓋 taipei-sunset 的 main）"
+        description: "輸入 push 以確認（先合併公開 main 再快轉推送，不會覆蓋任何 commit）"
         required: true
 
 permissions:
@@ -19,23 +26,38 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    if: inputs.confirm == 'push'
+    # 公開 repo 也帶著這個檔（整份同步過去），在那裡執行沒有意義 → 只在 dev repo 跑
+    if: github.repository == 'VioVenus/Claude' && inputs.confirm == 'push'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          # 不保留 checkout 的 GITHUB_TOKEN 憑證，否則它會以 extraheader 蓋掉
-          # 下方 push URL 內嵌的 PUBLIC_REPO_TOKEN（導致以 github-actions[bot] 身分被 403）
+          # 不保留 GITHUB_TOKEN 憑證，否則它會以 extraheader 蓋掉下方 URL 內嵌的 PAT
           persist-credentials: false
 
-      - name: Push to public repo
+      - name: Merge public main, then fast-forward push (never force)
         env:
           TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
         run: |
           if [ -z "$TOKEN" ]; then
             echo "::error::未設定 PUBLIC_REPO_TOKEN secret"; exit 1
           fi
-          git push --force \
-            "https://x-access-token:${TOKEN}@github.com/VioVenus/taipei-sunset.git" \
-            "HEAD:main"
-          echo "✅ 已推送 $(git rev-parse --short HEAD) → taipei-sunset:main"
+          PUB="https://x-access-token:${TOKEN}@github.com/VioVenus/taipei-sunset.git"
+          git config user.name "sunset-sync"
+          git config user.email "actions@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git fetch --quiet "$PUB" "+main:refs/remotes/public/main"
+            if git merge-base --is-ancestor public/main HEAD; then
+              echo "公開 main 已在本分支歷史中 → 直接快轉推送"
+            else
+              echo "公開 main 有本分支沒有的 commit（bot 日誌等）→ 先合併"
+              git merge --no-edit -m "merge: 同步公開 repo main（保留 bot 日誌與其他 commit）" public/main
+            fi
+            if git push "$PUB" "HEAD:main"; then
+              echo "✅ 已推送 $(git rev-parse --short HEAD) → taipei-sunset:main（快轉，非 force）"
+              exit 0
+            fi
+            echo "推送被拒（期間公開 main 又有新 commit），第 ${attempt} 次重試…"
+            sleep 5
+          done
+          echo "::error::連續 3 次推送失敗"; exit 1

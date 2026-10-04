@@ -50,10 +50,35 @@ app 自動走原本的 Issue Form 流程，不會壞。以下做完、填上兩�
 `web/js/config.js` 的 `RELAY_URL` / `TURNSTILE_SITEKEY`）→ commit → sync。
 完成後訪客在「紀錄」分頁按 A–D 直接送出，不跳任何頁面。
 
-### 驗收
-開 app（無痕視窗、不設 token）→ 紀錄分頁 → 按 B → 應顯示「✅ 已送出」；
-1–2 分鐘後 repo 的 `data/logs/reports.csv` 多一列、Actions 有一次
-`ingest-dispatch` 綠色執行。
+### 第 5 步：準點排程（Cron Triggers，強烈建議）
+GitHub 自己的排程常遲到 5–8 小時（16:20 的預測拖到晚上才跑＝日落後才「預測」）。
+讓 Worker 準點叫 GitHub 跑：
+1. Worker → **Settings** → **Triggers** → **Cron Triggers** → **Add**
+2. 新增兩筆（時間是 **UTC**，照抄即可）：
+   - `20 8 * * *` → 台北 16:20 當日日落判定
+   - `15 11 * * *` → 台北 19:15 回報提示
+3. 存檔。用的是同一把 `GH_TOKEN`（classic `repo` 已涵蓋觸發 workflow 的權限）。
+
+確認有效：隔天到公開 repo 的 Actions → `daily-forecast`，16:20 左右那筆的觸發來源
+應顯示 **workflow_dispatch**（而不是 schedule）。
+
+### 驗收（3 分鐘）
+1. **自我診斷**：瀏覽器開 `https://<你的 Worker 網址>/health`，應看到 `"ready": true`。
+   不是的話，`hints` 會直接寫出缺什麼（例：GH_TOKEN 無效、ALLOWED_ORIGIN 多了斜線）。
+   這個頁面只回布林值與狀態碼，不會顯示任何密鑰。
+2. **實際回報**：開 app（無痕視窗）→ 紀錄分頁 → 按 B → 應顯示「✅ 已送出」；
+   1–2 分鐘後公開 repo 的 `data/logs/reports.csv` 多一列、Actions 有一次
+   `ingest-dispatch` 綠色執行。
+3. 失敗時 app 會直接顯示原因碼＋一個「改用 GitHub 表單回報」連結（永不卡在驗證中）：
+
+   | 畫面上的原因碼 | 意思 | 怎麼修 |
+   |---|---|---|
+   | `load` | Turnstile 腳本載入失敗（廣告攔截／網路） | 換網路或關攔截；表單備援可用 |
+   | `110200` 等數字 | Turnstile widget 錯誤（110200＝網域未授權） | widget 的 Hostname 加入 `viovenus.github.io` |
+   | `captcha 403` | 驗證碼對不上 | `TURNSTILE_SECRET` 要是同一個 widget 的 Secret Key |
+   | `origin 403` | 來源網域不符 | `ALLOWED_ORIGIN` 改成 `https://viovenus.github.io` |
+   | `dispatch 401` | GitHub token 無效或過期 | 重新產生 classic PAT（勾 `repo`）更新 `GH_TOKEN` |
+   | `dispatch 404` | 找不到 repo 或沒權限 | 檢查 `GH_OWNER`／`GH_REPO`、token 權限 |
 
 ---
 
