@@ -124,3 +124,24 @@ def test_weekly_review_with_outlook(tmp_path: Path):
     assert "未來展望（初步，信心低" in text
     assert "7/6：火燒雲" in text
     assert "–" in text  # 區間輸出
+
+
+def _row(at: str, vp: str, cd: float, verdict: str = "出發") -> dict[str, str]:
+    return {"predicted_at_utc": at, "viewpoint_id": vp, "prob_C": str(cd), "prob_D": "0",
+            "verdict": verdict}
+
+
+def test_pick_day_prediction_prefers_reported_viewpoint_then_max_cd():
+    """多點位時：對帳用回報者所在的點位；沒寫點位才取這批 C+D 最高者。"""
+    early = _row("2026-10-04T05:00:00+00:00", "xiziwan", 90.0)  # 舊批次，不得入選
+    batch = [
+        _row("2026-10-04T08:20:01+00:00", "jiantan_laodifang", 20.0),
+        _row("2026-10-04T08:20:03+00:00", "tamsui_wharf", 45.0),
+        _row("2026-10-04T08:20:05+00:00", "gaomei_wetland", 30.0),
+    ]
+    rows = [early, *batch]
+    assert review.pick_day_prediction(rows, [])["viewpoint_id"] == "tamsui_wharf"
+    assert review.pick_day_prediction(rows, ["", "gaomei_wetland"])["viewpoint_id"] == "gaomei_wetland"
+    # 回報點位不在最新批次 → 退回 C+D 最高
+    assert review.pick_day_prediction(rows, ["xiziwan"])["viewpoint_id"] == "tamsui_wharf"
+    assert review.pick_day_prediction([], []) is None

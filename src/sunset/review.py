@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from sunset import leadtime, logbook
@@ -27,10 +27,10 @@ CALIBRATION_MIN_DAYS = 60
 
 @dataclass(frozen=True)
 class DayReview:
-    """單日回顧：當日最後一次預測 vs 群眾共識結果。"""
+    """單日回顧：當日對帳用的那筆預測（見 pick_day_prediction）vs 群眾共識結果。"""
 
     target_date: date
-    predicted_cd: float | None  # 最後一次預測的 C+D
+    predicted_cd: float | None  # 對帳預測的 C+D
     verdict: str | None
     outcome: str | None  # 共識結果 A|B|C|D，未回報為 None
     report_count: int = 0  # 該日回報人數
@@ -61,6 +61,41 @@ class WeeklyStats:
         return [d for d in self.days if d.burned]
 
 
+# 同一次 run 的各點位列在幾秒內寫完；10 分鐘內視為同一批
+BATCH_WINDOW = timedelta(minutes=10)
+
+
+def _cd(row: dict[str, str]) -> float:
+    return float(row["prob_C"]) + float(row["prob_D"])
+
+
+def pick_day_prediction(
+    rows: list[dict[str, str]], report_viewpoints: list[str]
+) -> dict[str, str] | None:
+    """一天多點位、多次預測中，挑出要拿來對帳的那一列（app logs.js 同規則）。
+
+    1. 只看當天最後一批有效預測（最新一列往前 BATCH_WINDOW 內）。
+    2. 回報有寫點位 → 取被回報最多次、且在這批裡的點位（平手取 id 字母序）。
+    3. 否則取這批 C+D 最高的點位——與每日推播頭條的主要準則（火燒等級）一致。
+    """
+    if not rows:
+        return None
+    newest = max(datetime.fromisoformat(r["predicted_at_utc"]) for r in rows)
+    batch = [
+        r for r in rows if newest - datetime.fromisoformat(r["predicted_at_utc"]) <= BATCH_WINDOW
+    ]
+    in_batch = {r["viewpoint_id"] for r in batch}
+    counts: dict[str, int] = {}
+    for vp in report_viewpoints:
+        if vp in in_batch:
+            counts[vp] = counts.get(vp, 0) + 1
+    if counts:
+        chosen = min(counts, key=lambda vp: (-counts[vp], vp))
+        return max((r for r in batch if r["viewpoint_id"] == chosen),
+                   key=lambda r: r["predicted_at_utc"])
+    return max(batch, key=lambda r: (_cd(r), r["viewpoint_id"]))
+
+
 def build_weekly_stats(
     end_date: date, logs_dir: Path | None = None, viewpoints_file: Path | None = None
 ) -> WeeklyStats:
@@ -75,8 +110,9 @@ def build_weekly_stats(
         day = end_date - timedelta(days=offset)
         iso = day.isoformat()
         rows = [r for r in predictions if r["target_date"] == iso]
-        last = max(rows, key=lambda r: r["predicted_at_utc"]) if rows else None
-        reporters = {r.get("reporter") or "anonymous" for r in pool if r["target_date"] == iso}
+        day_reports = [r for r in pool if r["target_date"] == iso]
+        last = pick_day_prediction(rows, [r.get("viewpoint_id", "") for r in day_reports])
+        reporters = {r.get("reporter") or "anonymous" for r in day_reports}
         days.append(
             DayReview(
                 target_date=day,

@@ -120,3 +120,11 @@ def test_push_decision_rules():
     assert pipeline.push_decision(AT_1620_TPE, [_prior(earlier, vp="xiziwan")], head) == "changed"
     late_night = datetime(2026, 10, 4, 16, 30, tzinfo=UTC)  # 00:30 TPE
     assert pipeline.push_decision(late_night, [], head) == "quiet"
+
+
+def test_push_decision_ignores_quiet_hour_and_previous_day_rows():
+    """夜間只寫日誌的列、前一晚的明日預覽，都不能吃掉今天白天的首推。"""
+    head = analyze(DAY, JIANTAN, _Stub(), now_utc=AT_1620_TPE)
+    quiet_row = _prior(datetime(2026, 10, 3, 16, 30, tzinfo=UTC), head.verdict)  # 10/4 00:30 TPE
+    preview_row = _prior(datetime(2026, 10, 3, 13, 0, tzinfo=UTC), head.verdict)  # 10/3 21:00 TPE
+    assert pipeline.push_decision(AT_1620_TPE, [quiet_row, preview_row], head) == "first"

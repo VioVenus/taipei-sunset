@@ -29,3 +29,18 @@ test("weeklyStats：較晚的日落後列不得蓋過當天有效預測", () => 
   assert.equal(today.verdict, "出發");
   assert.equal(today.predictedCd, 40);
 });
+
+test("pickDayPrediction：與 review.pick_day_prediction 同規則", async () => {
+  const { pickDayPrediction } = await import("../js/logs.js");
+  const r = (at, vp, cd) => ({ predicted_at_utc: at, viewpoint_id: vp, prob_C: String(cd), prob_D: "0" });
+  const rows = [
+    r("2026-10-04T05:00:00+00:00", "xiziwan", 90),
+    r("2026-10-04T08:20:01+00:00", "jiantan_laodifang", 20),
+    r("2026-10-04T08:20:03+00:00", "tamsui_wharf", 45),
+    r("2026-10-04T08:20:05+00:00", "gaomei_wetland", 30),
+  ];
+  assert.equal(pickDayPrediction(rows, []).viewpoint_id, "tamsui_wharf");
+  assert.equal(pickDayPrediction(rows, ["", "gaomei_wetland"]).viewpoint_id, "gaomei_wetland");
+  assert.equal(pickDayPrediction(rows, ["xiziwan"]).viewpoint_id, "tamsui_wharf");
+  assert.equal(pickDayPrediction([], []), null);
+});

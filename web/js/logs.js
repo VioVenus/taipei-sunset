@@ -111,6 +111,29 @@ export function rowIsTimely(row, coords = {}) {
   return sunset !== null && sunset - at >= MIN_LEAD_MIN * 60000;
 }
 
+const BATCH_WINDOW_MS = 10 * 60000; // 同一次 run 的各點位列在幾秒內寫完
+const cdOf = (r) => Number(r.prob_C) + Number(r.prob_D);
+
+/** 一天多點位、多次預測中挑出對帳那一列——規則同 review.pick_day_prediction。 */
+export function pickDayPrediction(rows, reportViewpoints) {
+  if (!rows.length) return null;
+  const at = (r) => Date.parse(r.predicted_at_utc);
+  const newest = Math.max(...rows.map(at));
+  const batch = rows.filter((r) => newest - at(r) <= BATCH_WINDOW_MS);
+  const inBatch = new Set(batch.map((r) => r.viewpoint_id));
+  const counts = new Map();
+  for (const vp of reportViewpoints) if (inBatch.has(vp)) counts.set(vp, (counts.get(vp) || 0) + 1);
+  if (counts.size) {
+    const chosen = [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0];
+    return batch.filter((r) => r.viewpoint_id === chosen)
+      .reduce((a, b) => (at(a) >= at(b) ? a : b));
+  }
+  return batch.reduce((a, b) => {
+    if (cdOf(a) !== cdOf(b)) return cdOf(a) > cdOf(b) ? a : b;
+    return a.viewpoint_id >= b.viewpoint_id ? a : b;
+  });
+}
+
 /** 過去 7 天（含 endDateStr）配對：每日最後一次「有效」預測 vs 最後一筆回報。 */
 export function weeklyStats(endDateStr, allPredictions, outcomes, coords = {}) {
   const predictions = allPredictions.filter((r) => rowIsTimely(r, coords));
@@ -119,10 +142,9 @@ export function weeklyStats(endDateStr, allPredictions, outcomes, coords = {}) {
   for (let off = 6; off >= 0; off--) {
     const iso = new Date(end - off * 86400000).toISOString().slice(0, 10);
     const rows = predictions.filter((r) => r.target_date === iso);
-    const last = rows.length
-      ? rows.reduce((a, b) => (a.predicted_at_utc > b.predicted_at_utc ? a : b))
-      : null;
-    const c = consensus(outcomes.filter((o) => o.target_date === iso));
+    const dayReports = outcomes.filter((o) => o.target_date === iso);
+    const last = pickDayPrediction(rows, dayReports.map((o) => o.viewpoint_id || ""));
+    const c = consensus(dayReports);
     days.push({
       date: iso,
       predictedCd: last ? Number(last.prob_C) + Number(last.prob_D) : null,

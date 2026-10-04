@@ -180,21 +180,35 @@ def is_duplicate_trigger(now_utc: datetime, prior: list[dict[str, str]]) -> bool
     return now_utc - latest < timedelta(minutes=DEDUPE_MINUTES)
 
 
+def _is_quiet(hour: int) -> bool:
+    start, end = QUIET_HOURS
+    return hour >= start or hour < end
+
+
 def push_decision(
     now_utc: datetime,
     prior: list[dict[str, str]],
     head: analysis_mod.AnalysisResult | None,
 ) -> str:
-    """這次要不要推播：quiet（夜間）／first（當日首推）／changed（頭條判定變了）／unchanged。"""
-    hour = now_utc.astimezone(solar.TAIPEI_TZ).hour
-    start, end = QUIET_HOURS
-    if hour >= start or hour < end:
+    """這次要不要推播：quiet（夜間）／first（今天首推）／changed（頭條判定變了）／unchanged。
+
+    「稍早推過」只算**今天（台北日曆日）非夜間**發出的列——夜間 run 只寫日誌沒推播，
+    不能讓它吃掉白天的首推；前一晚的明日預覽也不算，當天仍會有一則決策推播。
+    """
+    local_now = now_utc.astimezone(solar.TAIPEI_TZ)
+    if _is_quiet(local_now.hour):
         return "quiet"
-    if not prior:
+    pushed = [
+        r
+        for r in prior
+        if (at := _issued_at(r).astimezone(solar.TAIPEI_TZ)).date() == local_now.date()
+        and not _is_quiet(at.hour)
+    ]
+    if not pushed:
         return "first"
     if head is None:
         return "unchanged"  # 稍早已推過，資料不足不再重複打擾
-    same_point = [r for r in prior if r["viewpoint_id"] == head.viewpoint.id]
+    same_point = [r for r in pushed if r["viewpoint_id"] == head.viewpoint.id]
     if not same_point:
         return "changed"  # 頭條換了點位
     last = max(same_point, key=_issued_at)
